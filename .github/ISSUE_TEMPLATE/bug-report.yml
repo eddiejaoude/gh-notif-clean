@@ -1,0 +1,76 @@
+# Security vulnerabilities go through SECURITY.md, never through this form.
+name: Bug report
+description: A thread was marked done when it shouldn't have been, was kept when it should have been done, or the command failed.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search the open and closed issues first: the bug may already be reported or fixed.
+
+        Found a security vulnerability? Don't file it here. Follow `SECURITY.md` to report it privately.
+
+        Never paste a token. Output from `gh notif-clean` includes repository names, thread titles, and logins: remove anything private before you paste it.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, including the exact error message if there was one.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should have happened instead. For a wrongly marked or kept thread, say who took part in it.
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command you ran
+      placeholder: gh notif-clean --dry-run -v --ignore 'cla-assistant[bot]'
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: The `--dry-run -v` output for the affected thread, or the full error. Remove private repository names and titles first.
+      render: text
+  - type: input
+    id: thread
+    attributes:
+      label: Thread link
+      description: Link to the affected PR or issue, if it's public.
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: Paste the output of these three commands.
+      value: |
+        gh --version:
+        node --version:
+        gh extension list | grep notif-clean:
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows (Git Bash)
+        - Windows (WSL)
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched the open and closed issues for this bug.
+          required: true
+        - label: This issue holds no token and nothing private.
+          required: true

@@ -1,0 +1,38 @@
+name: Suggest a default bot
+description: Propose a bot to ignore by default, so nobody needs --ignore for it.
+title: "Ignore <bot login> by default"
+labels: ["default-bots"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A default bot is ignored for every user, so a thread it takes part in can be marked done without anyone asking for that. Suggest a bot only if its activity never needs a person's attention on its own.
+
+        For a bot only you want ignored, use `--ignore 'login[bot]'` or a `gh alias` (see the README) instead.
+  - type: input
+    id: login
+    attributes:
+      label: Bot login
+      description: Exactly as GitHub shows it, including the `[bot]` suffix.
+      placeholder: renovate[bot]
+    validations:
+      required: true
+  - type: textarea
+    id: activity
+    attributes:
+      label: What it does in threads
+      description: The comments, reviews, labels, or commits it adds, and which repositories use it.
+    validations:
+      required: true
+  - type: textarea
+    id: why-safe
+    attributes:
+      label: Why it's safe to ignore by default
+      description: Why its activity never needs a person to look at it. Mention any case where it does.
+    validations:
+      required: true
+  - type: input
+    id: example
+    attributes:
+      label: Example thread
+      description: Link to a public PR or issue where it took part.
