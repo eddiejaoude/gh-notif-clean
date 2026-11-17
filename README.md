@@ -1,5 +1,9 @@
 # gh-notif-clean
 
+[![CI](https://github.com/eddiejaoude/gh-notif-clean/actions/workflows/ci.yml/badge.svg)](https://github.com/eddiejaoude/gh-notif-clean/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/eddiejaoude/gh-notif-clean)](https://github.com/eddiejaoude/gh-notif-clean/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/eddiejaoude/gh-notif-clean)](LICENSE)
+
 `gh` extension that marks GitHub notification threads as **done** when only bots took part, so your inbox shows threads that real people are in.
 
 Ignored by default: `vercel[bot]`, `dependabot[bot]`, `dependabot-preview[bot]`, `github-advanced-security[bot]`.
@@ -94,6 +98,10 @@ npm test           # node:test, no network access
 | `src/clean.ts` | Lists notifications, loads each thread's activity, applies the rules, marks threads done |
 | `src/github.ts` | REST client: `gh auth token`, pagination, retries on 429/5xx |
 | `src/cli.ts` | Flags and output |
+
+## Contributing
+
+Bug reports, feature ideas, and bots to ignore by default are welcome: open one from the [issue chooser](https://github.com/eddiejaoude/gh-notif-clean/issues/new/choose). [CONTRIBUTING.md](CONTRIBUTING.md) covers setup and conventions, and [`good first issue`](https://github.com/eddiejaoude/gh-notif-clean/labels/good%20first%20issue) lists places to start. Report security issues privately as [SECURITY.md](SECURITY.md) describes.
 
 ## License
 
