@@ -1,0 +1,19 @@
+{
+  "name": "gh-notif-clean",
+  "version": "0.1.0",
+  "private": true,
+  "description": "gh extension that marks GitHub notifications as done when only bots took part",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,5 @@
+#!/bin/sh
+# gh extension entry point: runs the TypeScript source with Node's built-in type stripping.
+set -e
+dir=$(cd "$(dirname "$0")" && pwd -P)
+exec node "$dir/src/cli.ts" "$@"
