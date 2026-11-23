@@ -35,10 +35,10 @@ function fakeApi(notifications: Notification[], responses: Record<string, unknow
 }
 
 /** Responses for a PR whose timeline holds the given events. */
-function pr(repo: string, n: number, author: string, timeline: unknown[]) {
+function pr(repo: string, n: number, author: string, timeline: unknown[], state = "open") {
   const url = `${API}/${repo}/pulls/${n}`;
   return {
-    [url]: { user: { login: author }, html_url: `https://github.com/${repo}/pull/${n}`, head: { sha: `sha${n}` } },
+    [url]: { user: { login: author }, html_url: `https://github.com/${repo}/pull/${n}`, head: { sha: `sha${n}` }, state },
     [`${API}/${repo}/issues/${n}/timeline`]: timeline,
     [`${url}/comments`]: [],
     [`${url}/commits`]: [{ author: { login: author } }],
@@ -152,6 +152,18 @@ describe("--keep-failed", () => {
     const [result] = await clean(api, options({ keepFailed: true }));
     assert.deepEqual(marked, []);
     assert.match(result?.reason ?? "", /^couldn't inspect checks: 404/);
+  });
+
+  test("closed and merged PRs are marked done without reading their checks", async () => {
+    const closed = pr("me/app", 6, "dependabot[bot]", [], "closed");
+    const { api, marked, requested } = fakeApi([thread("6", "me/app", "PullRequest", `${API}/me/app/pulls/6`)], {
+      ...closed,
+      ...checks("me/app", "sha6", [{ context: "Vercel", state: "failure" }], []),
+    });
+    const [result] = await clean(api, options({ keepFailed: true }));
+    assert.equal(result?.outcome, "done");
+    assert.deepEqual(marked, ["6"]);
+    assert.ok(!requested.some((p) => p.includes("/commits/")));
   });
 
   test("reads every page of check runs", async () => {

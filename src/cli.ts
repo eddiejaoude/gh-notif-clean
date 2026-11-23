@@ -14,7 +14,7 @@ Flags:
       --no-default-bots  Ignore only the accounts given with --ignore
   -R, --repo REPO        Only process OWNER/NAME or every repo of OWNER (repeatable)
       --unread-only      Skip threads you have already read
-      --keep-failed      Keep PRs whose latest commit has failed or unfinished checks
+      --keep-failed      Keep open PRs whose latest commit has failed or unfinished checks
       --json             Print results as JSON
   -h, --help             Show this help
 

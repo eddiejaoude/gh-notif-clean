@@ -24,7 +24,7 @@ export interface CleanOptions {
   repos: readonly string[];
   unreadOnly: boolean;
   dryRun: boolean;
-  /** Keep PRs whose head commit has failed or unfinished checks. */
+  /** Keep open PRs whose head commit has failed or unfinished checks. */
   keepFailed: boolean;
   concurrency?: number;
 }
@@ -48,6 +48,7 @@ interface Subject {
   user?: { login: string } | null;
   author?: { login: string } | null;
   head?: { sha: string };
+  state?: string;
 }
 
 async function loadActivity(api: Api, url: string, type: string) {
@@ -67,7 +68,7 @@ async function loadActivity(api: Api, url: string, type: string) {
     ]);
     Object.assign(activity, { timeline, reviewComments, commits });
   }
-  return { activity, htmlUrl: subject.html_url ?? null, headSha: subject.head?.sha ?? null };
+  return { activity, htmlUrl: subject.html_url ?? null, headSha: subject.head?.sha ?? null, open: subject.state === "open" };
 }
 
 /** Every page of an endpoint that wraps its list in an object with `total_count`. */
@@ -130,10 +131,12 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
 
     let logins: Set<string>;
     let headSha: string | null;
+    let open: boolean;
     try {
       const loaded = await loadActivity(api, n.subject.url, n.subject.type);
       base.url = loaded.htmlUrl;
       headSha = loaded.headSha;
+      open = loaded.open;
       logins = participants(loaded.activity);
       base.participants = [...logins].sort();
     } catch (error) {
@@ -142,7 +145,7 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
 
     const decision = decide(logins, options.me, options.ignored);
     if (!decision.done) return { ...base, outcome: "kept", reason: decision.reason };
-    if (options.keepFailed && n.subject.type === "PullRequest") {
+    if (options.keepFailed && n.subject.type === "PullRequest" && open) {
       let reason: string | null;
       try {
         if (!headSha) throw new Error("no head commit");
