@@ -75,7 +75,7 @@ export interface CommitStatus {
   state: string;
 }
 
-/** Latest check run per name on a commit. */
+/** A check run on a commit: the latest of each name within its check suite, so a name can repeat. */
 export interface CheckRun {
   name: string;
   status: string;
