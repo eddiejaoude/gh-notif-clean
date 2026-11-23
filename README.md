@@ -29,6 +29,7 @@ gh notif-clean --ignore 'cla-assistant[bot]' # also ignore another bot for this 
 gh notif-clean -R eddiejaoude/StackDash      # only one repository
 gh notif-clean -R paypal                     # only repositories owned by paypal
 gh notif-clean --keep-failed                 # but keep open PRs whose deploy or CI failed or is still running
+gh notif-clean --closed-only                 # but keep open PRs and issues until they're merged or closed
 gh notif-clean --keep-reason review_requested --keep-reason assign  # but keep threads where you were asked to review or assigned
 gh notif-clean --json -n | jq '.threads[] | select(.outcome == "kept")'
 ```
@@ -42,6 +43,7 @@ gh notif-clean --json -n | jq '.threads[] | select(.outcome == "kept")'
 | `-R`, `--repo REPO` | Only process `OWNER/NAME`, or every repository of `OWNER` (repeatable) |
 | `--unread-only` | Skip threads you've already read |
 | `--keep-failed` | Keep open PRs whose latest commit has failed or unfinished checks, such as a failed Vercel deploy |
+| `--closed-only` | Keep open PRs and issues, so only closed or merged ones are marked done |
 | `--keep-reason REASON` | Keep threads whose [notification reason](https://docs.github.com/en/rest/activity/notifications#about-notification-reasons) is `REASON`, such as `review_requested` or `assign`, until their PR or issue is closed or merged (repeatable, any case). GitHub sets the reason from the latest notification on the thread |
 | `--json` | Print the summary and every thread's outcome as JSON |
 | `-h`, `--help` | Show help |
@@ -76,6 +78,8 @@ The thread is marked done only if both checks pass. The check covers the thread'
 
 With `--keep-failed`, an open PR that passes both checks is still kept if a check on its latest commit failed or hasn't finished. That covers commit statuses that are `failure` or `error` (how Vercel reports a failed deploy) and check runs that ended `failure`, `timed_out` or `action_required`. Unfinished checks keep the thread too: a check changing later doesn't send a notification, so a thread marked done before its deploy fails wouldn't come back. A check run cancelled after it started keeps it unless another run with the same name passed, was skipped or was neutral, because GitHub Actions reports a job that hit `timeout-minutes` as cancelled. A run cancelled before it started, such as one a newer run on the same commit replaced, doesn't keep it. Passed, neutral and skipped checks don't keep it. A PR whose checks can't be read is kept too. Closed and merged PRs are left to the two checks above: a failed check there is no longer anyone's to fix. The flag adds two API requests (more past 100 checks) for each open PR that would otherwise be marked done.
 
+With `--closed-only`, an open PR or issue that passes both checks is still kept, with the reason `still open`, so an open Dependabot bump stays in your inbox until it's merged or closed. A thread an earlier run already marked done isn't brought back: it's listed as kept, but stays out of your inbox until the PR or issue notifies you again or you move it back yourself. Releases, commits and discussions are unaffected. The flag uses the PR or issue already fetched, so it adds no API requests. With `--keep-failed` as well, a failed or unfinished check is the reason given, and `still open` covers the rest.
+
 With `--keep-reason`, a thread whose [notification reason](https://docs.github.com/en/rest/activity/notifications#about-notification-reasons) matches is kept whoever took part, unless its PR, issue or discussion is closed or merged: a merged bump no longer needs your review, so it's decided as if the reason didn't match. Only the PR, issue or other subject is fetched to check that, not its history, so a matching thread costs one API request, and `-v` and `--json` show it with its URL but no participants. That keeps review requests and assignments that only bots took part in, such as a review that CODEOWNERS requested from you on a Dependabot bump. GitHub sets a thread's reason from its latest notification and doesn't keep earlier ones, so a review request is matched only while no later notification has changed the reason. Threads that can't be inspected, such as check suites, are kept with their notification reason when it matches.
 
 | Example thread | Who took part | Anyone else? | Ignored bot present? | Result |
@@ -87,6 +91,8 @@ With `--keep-reason`, a thread whose [notification reason](https://docs.github.c
 | Dependabot bump whose CI is still running, run with `--keep-failed` | `dependabot[bot]`, you | no | yes | **Kept**: checks pending, so the next run checks it again |
 | Dependabot bump whose Actions deploy job timed out, run with `--keep-failed` | `dependabot[bot]`, you | no | yes | **Kept**: checks cancelled |
 | Closed Dependabot bump whose CI failed, run with `--keep-failed` | `dependabot[bot]`, you | no | yes | **Done**: the PR is closed |
+| Open Dependabot bump, run with `--closed-only` | `dependabot[bot]`, you | no | yes | **Kept**: still open |
+| Merged Dependabot bump, run with `--closed-only` | `dependabot[bot]`, you | no | yes | **Done** |
 | Open Dependabot bump that requested your review through CODEOWNERS, run with `--keep-reason review_requested` | `dependabot[bot]` | no | yes | **Kept**: notification reason `review_requested`, without loading the thread's history |
 | The same bump once merged, run with `--keep-reason review_requested` | `dependabot[bot]` | no | yes | **Done**: the PR is merged |
 | The open bump, run without `--keep-reason` | `dependabot[bot]` | no | yes | **Done** |

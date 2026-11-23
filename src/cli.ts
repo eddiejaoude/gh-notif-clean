@@ -15,6 +15,7 @@ Flags:
   -R, --repo REPO           Only process OWNER/NAME or every repo of OWNER (repeatable)
       --unread-only         Skip threads you have already read
       --keep-failed         Keep open PRs whose latest commit has failed or unfinished checks
+      --closed-only         Keep open PRs and issues; mark only closed or merged ones done
       --keep-reason REASON  Keep threads whose notification reason is REASON (repeatable), e.g.
                             review_requested, until their PR or issue is closed or merged.
                             GitHub sets the reason from the latest notification on the
@@ -49,6 +50,7 @@ async function main(argv: string[]): Promise<number> {
         "unread-only": { type: "boolean", default: false },
         "keep-failed": { type: "boolean", default: false },
         "keep-reason": { type: "string", multiple: true, default: [] },
+        "closed-only": { type: "boolean", default: false },
         json: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
@@ -86,6 +88,7 @@ async function main(argv: string[]): Promise<number> {
     dryRun: values["dry-run"],
     keepFailed: values["keep-failed"],
     keepReasons,
+    closedOnly: values["closed-only"],
   });
 
   const count = (...outcomes: ThreadResult["outcome"][]) =>

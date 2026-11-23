@@ -28,6 +28,8 @@ export interface CleanOptions {
   keepFailed: boolean;
   /** Lowercased notification reasons whose threads are kept without being fetched. */
   keepReasons: ReadonlySet<string>;
+  /** Keep open PRs and issues, so only closed or merged ones are marked done. */
+  closedOnly: boolean;
   concurrency?: number;
 }
 
@@ -146,6 +148,9 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
         reason = `couldn't inspect checks: ${error instanceof Error ? error.message : String(error)}`;
       }
       if (reason) return { ...base, outcome: "kept", reason };
+    }
+    if (options.closedOnly && open && (n.subject.type === "PullRequest" || n.subject.type === "Issue")) {
+      return { ...base, outcome: "kept", reason: "still open" };
     }
     if (options.dryRun) return { ...base, outcome: "would-done" };
     try {
