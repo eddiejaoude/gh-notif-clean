@@ -2,11 +2,13 @@ import type { Api } from "./github.ts";
 import {
   checksReason,
   decide,
+  needsWorkflowRuns,
   participants,
   type CheckRun,
   type CommitStatus,
   type ThreadActivity,
   type TimelineEvent,
+  type WorkflowRun,
 } from "./rules.ts";
 
 export interface Notification {
@@ -82,12 +84,21 @@ async function loadActivity(api: Api, url: string, type: string, subject: Subjec
 
 /** Why the PR at `prUrl` is kept for the checks on commit `sha`, or `null`. */
 async function loadChecksReason(api: Api, prUrl: string, sha: string): Promise<string | null> {
-  const commit = `${prUrl.replace(/\/pulls\/\d+$/, "")}/commits/${sha}`;
+  const repo = prUrl.replace(/\/pulls\/\d+$/, "");
+  const commit = `${repo}/commits/${sha}`;
   const [statuses, checkRuns] = await Promise.all([
     api.getAll<CommitStatus>(`${commit}/status`, "statuses"),
     api.getAll<CheckRun>(`${commit}/check-runs`, "check_runs"),
   ]);
-  return checksReason(statuses, checkRuns);
+  let workflowRuns: WorkflowRun[] = [];
+  if (needsWorkflowRuns(checkRuns)) {
+    try {
+      workflowRuns = await api.getAll<WorkflowRun>(`${repo}/actions/runs?head_sha=${sha}`, "workflow_runs");
+    } catch {
+      // Without them no failure is excused, so the thread is kept for its failed checks.
+    }
+  }
+  return checksReason(statuses, checkRuns, workflowRuns);
 }
 
 function inRepos(fullName: string, repos: readonly string[]): boolean {

@@ -264,6 +264,53 @@ describe("--keep-failed", () => {
     assert.deepEqual(marked, ["6"]);
     assert.ok(!requested.some((p) => p.includes("/commits/")));
   });
+
+  describe("a failed run whose job passed in a newer workflow run", () => {
+    const failed = {
+      name: "test",
+      status: "completed",
+      conclusion: "failure",
+      started_at: "2026-11-23T10:00:00Z",
+      completed_at: "2026-11-23T10:01:00Z",
+      check_suite: { id: 1 },
+    };
+    const passed = { ...failed, conclusion: "success", started_at: "2026-11-23T11:00:00Z", completed_at: "2026-11-23T11:01:00Z", check_suite: { id: 2 } };
+    const runsPath = (sha: string) => `${API}/me/app/actions/runs?head_sha=${sha}`;
+    const inbox = [
+      thread("11", "me/app", "PullRequest", `${API}/me/app/pulls/11`),
+      thread("12", "me/app", "PullRequest", `${API}/me/app/pulls/12`),
+    ];
+    const responses = {
+      ...pr("me/app", 11, "dependabot[bot]", []),
+      ...pr("me/app", 12, "dependabot[bot]", []),
+      ...checks("me/app", "sha11", [], [failed, passed]),
+      ...checks("me/app", "sha12", [], [failed]),
+    };
+
+    test("is excused, and the workflow runs are fetched only for the PR that has one", async () => {
+      const { api, marked, requested } = fakeApi(inbox, {
+        ...responses,
+        [runsPath("sha11")]: {
+          workflow_runs: [
+            { check_suite_id: 1, workflow_id: 10, event: "pull_request" },
+            { check_suite_id: 2, workflow_id: 10, event: "pull_request" },
+          ],
+        },
+      });
+      const results = await clean(api, options({ keepFailed: true }));
+      assert.deepEqual(marked, ["11"]);
+      assert.equal(results[1]?.reason, "checks failed: test");
+      assert.ok(requested.includes(runsPath("sha11")));
+      assert.ok(!requested.includes(runsPath("sha12")), "workflow runs fetched for a PR with no later pass");
+    });
+
+    test("keeps the PR for its failed check when the workflow runs can't be fetched", async () => {
+      const { api, marked } = fakeApi([inbox[0]!], responses);
+      const [result] = await clean(api, options({ keepFailed: true }));
+      assert.deepEqual(marked, []);
+      assert.equal(result?.reason, "checks failed: test");
+    });
+  });
 });
 
 describe("--keep-reason", () => {
