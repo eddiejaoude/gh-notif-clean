@@ -21,7 +21,10 @@ function fakeApi(notifications: Notification[], responses: Record<string, unknow
   };
   const api: Api = {
     async get<T>(path: string) {
-      return lookup(path) as T;
+      const body = lookup(path);
+      // The real `get` reads one page, so a list has to go through `getAll`.
+      if (Array.isArray(body)) throw new Error(`get() on a list: ${path}`);
+      return body as T;
     },
     async getAll<T>(path: string, key?: string) {
       if (path.startsWith("notifications")) return notifications as T[];
