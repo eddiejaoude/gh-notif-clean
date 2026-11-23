@@ -68,3 +68,65 @@ export function decide(
   if (![...logins].some(isIgnored)) return { done: false, reason: "no ignored bot took part" };
   return { done: true };
 }
+
+/** Latest status per context on a commit, from the combined status endpoint. */
+export interface CommitStatus {
+  context: string;
+  state: string;
+}
+
+/** A check run on a commit: the latest of each name within its check suite, so a name can repeat. */
+export interface CheckRun {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+/** Conclusions that settle a check: a cancelled run with a namesake that ended this way doesn't keep the thread. */
+const SETTLED_CONCLUSIONS: Record<string, true> = { success: true, skipped: true, neutral: true };
+
+const FAILED_STATES: Record<string, true> = { failure: true, error: true };
+const FAILED_CONCLUSIONS: Record<string, true> = { failure: true, timed_out: true, action_required: true };
+
+/**
+ * Why a PR's head commit keeps its thread: checks that failed, or else checks
+ * that haven't finished, or else check runs that were cancelled after they
+ * started with no same-named run that passed, was skipped or was neutral.
+ * Unfinished checks keep it because a status changing doesn't notify, so a
+ * thread marked done now wouldn't come back if one fails. Cancelled runs keep
+ * it because GitHub Actions reports a job that hit `timeout-minutes` as
+ * cancelled, not timed out. `null` otherwise.
+ */
+export function checksReason(statuses: readonly CommitStatus[], checkRuns: readonly CheckRun[]): string | null {
+  const failed = new Set<string>();
+  const pending = new Set<string>();
+  const cancelled = new Set<string>();
+  const settled = new Set<string>();
+  for (const status of statuses) {
+    if (FAILED_STATES[status.state]) failed.add(status.context);
+    else if (status.state === "pending") pending.add(status.context);
+  }
+  for (const run of checkRuns) {
+    if (run.status !== "completed") pending.add(run.name);
+    else if (run.conclusion && FAILED_CONCLUSIONS[run.conclusion]) failed.add(run.name);
+    else if (run.conclusion === "cancelled") {
+      // A run cancelled before it started can't have hit `timeout-minutes`.
+      const ran = run.started_at && run.completed_at && Date.parse(run.completed_at) > Date.parse(run.started_at);
+      if (ran) cancelled.add(run.name);
+    } else if (run.conclusion && SETTLED_CONCLUSIONS[run.conclusion]) settled.add(run.name);
+  }
+  for (const name of settled) cancelled.delete(name);
+  if (failed.size > 0) return `checks failed: ${names(failed)}`;
+  if (pending.size > 0) return `checks pending: ${names(pending)}`;
+  if (cancelled.size > 0) return `checks cancelled: ${names(cancelled)}`;
+  return null;
+}
+
+/** The first three names, sorted, then how many more: head commits can carry over 100 checks. */
+function names(set: ReadonlySet<string>): string {
+  const sorted = [...set].sort();
+  if (sorted.length <= 3) return sorted.join(", ");
+  return `${sorted.slice(0, 3).join(", ")} and ${sorted.length - 3} more`;
+}

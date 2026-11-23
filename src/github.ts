@@ -3,8 +3,11 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 export interface Api {
   get<T>(path: string): Promise<T>;
-  /** GET every page of a list endpoint by following `Link: rel="next"`. */
-  getAll<T>(path: string): Promise<T[]>;
+  /**
+   * GET every page of a list endpoint by following `Link: rel="next"`. `key`
+   * names the list for endpoints that wrap it in an object.
+   */
+  getAll<T>(path: string, key?: string): Promise<T[]>;
   markDone(threadId: string): Promise<void>;
 }
 
@@ -77,14 +80,15 @@ export function createApi({
     async get<T>(path: string) {
       return (await (await request("GET", resolve(path))).json()) as T;
     },
-    async getAll<T>(path: string) {
+    async getAll<T>(path: string, key?: string) {
       const first = new URL(resolve(path));
       if (!first.searchParams.has("per_page")) first.searchParams.set("per_page", "100");
       const items: T[] = [];
       let url: string | undefined = first.toString();
       while (url) {
         const res = await request("GET", url);
-        items.push(...((await res.json()) as T[]));
+        const body = await res.json();
+        items.push(...((key ? body[key] : body) as T[]));
         url = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get("link") ?? "")?.[1];
       }
       return items;
