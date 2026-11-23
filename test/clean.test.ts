@@ -63,6 +63,7 @@ const options = (overrides: Partial<CleanOptions> = {}): CleanOptions => ({
   unreadOnly: false,
   dryRun: false,
   keepFailed: false,
+  closedOnly: false,
   ...overrides,
 });
 
@@ -186,5 +187,98 @@ describe("--keep-failed", () => {
     assert.equal(result?.outcome, "done");
     assert.deepEqual(marked, ["6"]);
     assert.ok(!requested.some((p) => p.includes("/commits/")));
+  });
+});
+
+describe("--closed-only", () => {
+  const you = { event: "commented", actor: { login: "octocat" } };
+  const issue = (n: number, state: string) => ({
+    [`${API}/me/app/issues/${n}`]: { user: { login: "dependabot[bot]" }, html_url: `https://github.com/me/app/issues/${n}`, state },
+    [`${API}/me/app/issues/${n}/timeline`]: [],
+  });
+  const inbox = [
+    thread("1", "me/app", "PullRequest", `${API}/me/app/pulls/1`), // open bump
+    thread("2", "me/app", "PullRequest", `${API}/me/app/pulls/2`), // open, a maintainer took part
+    thread("3", "me/app", "PullRequest", `${API}/me/app/pulls/3`), // merged bump
+    thread("4", "me/app", "Issue", `${API}/me/app/issues/4`),
+    thread("5", "me/app", "Issue", `${API}/me/app/issues/5`),
+    thread("6", "me/app", "Release", `${API}/me/app/releases/6`),
+    thread("7", "me/app", "Commit", `${API}/me/app/commits/abc7`),
+    thread("8", "me/app", "Discussion", `${API}/me/app/discussions/8`),
+  ];
+  const responses = {
+    ...pr("me/app", 1, "dependabot[bot]", [you]),
+    ...reviewRequested,
+    ...pr("me/app", 3, "dependabot[bot]", [you, { event: "merged", actor: { login: "octocat" } }], "closed"),
+    ...issue(4, "open"),
+    ...issue(5, "closed"),
+    [`${API}/me/app/releases/6`]: { author: { login: "github-actions[bot]" }, html_url: "https://github.com/me/app/releases/v6" },
+    [`${API}/me/app/commits/abc7`]: { author: { login: "dependabot[bot]" }, html_url: "https://github.com/me/app/commit/abc7" },
+    // Only PRs and issues are held back, even when another subject reports itself open.
+    [`${API}/me/app/discussions/8`]: { user: { login: "dependabot[bot]" }, state: "open" },
+  };
+  const ignored = new Set([...DEFAULT_IGNORED, "github-actions[bot]"]);
+
+  test("keeps open PRs and issues and marks closed, merged and other threads done", async () => {
+    const { api, marked } = fakeApi(inbox, responses);
+    const results = await clean(api, options({ closedOnly: true, ignored }));
+
+    assert.deepEqual(marked.sort(), ["3", "5", "6", "7", "8"]);
+    assert.deepEqual(
+      results.map((r) => [r.id, r.outcome, r.reason]),
+      [
+        ["1", "kept", "still open"],
+        ["2", "kept", "maintainer"],
+        ["3", "done", undefined],
+        ["4", "kept", "still open"],
+        ["5", "done", undefined],
+        ["6", "done", undefined],
+        ["7", "done", undefined],
+        ["8", "done", undefined],
+      ],
+    );
+  });
+
+  test("a dry run keeps the same threads", async () => {
+    const { api, marked } = fakeApi(inbox, responses);
+    const results = await clean(api, options({ closedOnly: true, ignored, dryRun: true }));
+    assert.deepEqual(marked, []);
+    assert.deepEqual(
+      results.map((r) => [r.id, r.outcome]),
+      [
+        ["1", "kept"],
+        ["2", "kept"],
+        ["3", "would-done"],
+        ["4", "kept"],
+        ["5", "would-done"],
+        ["6", "would-done"],
+        ["7", "would-done"],
+        ["8", "would-done"],
+      ],
+    );
+  });
+
+  test("without the flag, open PRs and issues are marked done", async () => {
+    const { api, marked } = fakeApi(inbox, responses);
+    await clean(api, options({ ignored }));
+    assert.deepEqual(marked.sort(), ["1", "3", "4", "5", "6", "7", "8"]);
+  });
+
+  test("with --keep-failed, a failed check is the reason given and other open PRs are still open", async () => {
+    const { api, marked } = fakeApi([inbox[0]!, thread("9", "me/app", "PullRequest", `${API}/me/app/pulls/9`)], {
+      ...responses,
+      ...pr("me/app", 9, "dependabot[bot]", [you]),
+      ...checks("me/app", "sha1", [{ context: "Vercel", state: "failure" }], []),
+      ...checks("me/app", "sha9", [{ context: "Vercel", state: "success" }], []),
+    });
+    const results = await clean(api, options({ closedOnly: true, keepFailed: true }));
+    assert.deepEqual(marked, []);
+    assert.deepEqual(
+      results.map((r) => [r.id, r.reason]),
+      [
+        ["1", "checks failed: Vercel"],
+        ["9", "still open"],
+      ],
+    );
   });
 });

@@ -15,6 +15,7 @@ Flags:
   -R, --repo REPO        Only process OWNER/NAME or every repo of OWNER (repeatable)
       --unread-only      Skip threads you have already read
       --keep-failed      Keep open PRs whose latest commit has failed or unfinished checks
+      --closed-only      Keep open PRs and issues; mark only closed or merged ones done
       --json             Print results as JSON
   -h, --help             Show this help
 
@@ -43,6 +44,7 @@ async function main(argv: string[]): Promise<number> {
         repo: { type: "string", short: "R", multiple: true, default: [] },
         "unread-only": { type: "boolean", default: false },
         "keep-failed": { type: "boolean", default: false },
+        "closed-only": { type: "boolean", default: false },
         json: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
@@ -71,6 +73,7 @@ async function main(argv: string[]): Promise<number> {
     unreadOnly: values["unread-only"],
     dryRun: values["dry-run"],
     keepFailed: values["keep-failed"],
+    closedOnly: values["closed-only"],
   });
 
   const count = (...outcomes: ThreadResult["outcome"][]) =>
