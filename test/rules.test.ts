@@ -63,12 +63,16 @@ describe("checksReason (README --keep-failed examples)", () => {
     assert.equal(checksReason([{ context: "Vercel", state: "pending" }], [run("test", "completed", "failure")]), "checks failed: test");
   });
 
-  test("passed, neutral, skipped and cancelled checks, or none, don't keep the thread", () => {
+  test("a cancelled run keeps the thread, as a timed-out Actions job reports cancelled", () => {
+    assert.equal(checksReason([], [run("deploy", "completed", "cancelled")]), "checks cancelled: deploy");
+  });
+
+  test("passed, neutral and skipped checks, a cancelled run whose namesake passed, or none, don't keep the thread", () => {
     const done = [
       run("a", "completed", "success"),
       run("b", "completed", "neutral"),
       run("c", "completed", "skipped"),
-      run("d", "completed", "cancelled"),
+      run("a", "completed", "cancelled"),
     ];
     assert.equal(checksReason([{ context: "Vercel", state: "success" }], done), null);
     assert.equal(checksReason([], []), null);

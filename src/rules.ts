@@ -87,13 +87,17 @@ const FAILED_CONCLUSIONS: Record<string, true> = { failure: true, timed_out: tru
 
 /**
  * Why a PR's head commit keeps its thread: checks that failed, or else checks
- * that haven't finished. Unfinished checks keep it because a status changing
+ * that haven't finished, or else check runs that were cancelled with no
+ * same-named run passing. Unfinished checks keep it because a status changing
  * doesn't notify, so a thread marked done now wouldn't come back if one fails.
- * `null` when every check passed or there are none.
+ * Cancelled runs keep it because GitHub Actions reports a job that hit
+ * `timeout-minutes` as cancelled, not timed out. `null` otherwise.
  */
 export function checksReason(statuses: readonly CommitStatus[], checkRuns: readonly CheckRun[]): string | null {
   const failed = new Set<string>();
   const pending = new Set<string>();
+  const cancelled = new Set<string>();
+  const passed = new Set<string>();
   for (const status of statuses) {
     if (FAILED_STATES[status.state]) failed.add(status.context);
     else if (status.state === "pending") pending.add(status.context);
@@ -101,8 +105,12 @@ export function checksReason(statuses: readonly CommitStatus[], checkRuns: reado
   for (const run of checkRuns) {
     if (run.status !== "completed") pending.add(run.name);
     else if (run.conclusion && FAILED_CONCLUSIONS[run.conclusion]) failed.add(run.name);
+    else if (run.conclusion === "cancelled") cancelled.add(run.name);
+    else if (run.conclusion === "success") passed.add(run.name);
   }
+  for (const name of passed) cancelled.delete(name);
   if (failed.size > 0) return `checks failed: ${[...failed].sort().join(", ")}`;
   if (pending.size > 0) return `checks pending: ${[...pending].sort().join(", ")}`;
+  if (cancelled.size > 0) return `checks cancelled: ${[...cancelled].sort().join(", ")}`;
   return null;
 }
