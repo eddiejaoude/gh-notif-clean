@@ -6,8 +6,8 @@ import { DEFAULT_IGNORED } from "../src/rules.ts";
 
 const API = "https://api.github.com/repos";
 
-function thread(id: string, repo: string, type: string, url: string | null): Notification {
-  return { id, unread: true, reason: "author", repository: { full_name: repo }, subject: { title: `t${id}`, type, url } };
+function thread(id: string, repo: string, type: string, url: string | null, reason = "author"): Notification {
+  return { id, unread: true, reason, repository: { full_name: repo }, subject: { title: `t${id}`, type, url } };
 }
 
 /** Fake API serving fixed responses; records every path fetched and thread marked done. */
@@ -63,6 +63,7 @@ const options = (overrides: Partial<CleanOptions> = {}): CleanOptions => ({
   unreadOnly: false,
   dryRun: false,
   keepFailed: false,
+  keepReasons: new Set(),
   closedOnly: false,
   ...overrides,
 });
@@ -187,6 +188,67 @@ describe("--keep-failed", () => {
     assert.equal(result?.outcome, "done");
     assert.deepEqual(marked, ["6"]);
     assert.ok(!requested.some((p) => p.includes("/commits/")));
+  });
+});
+
+describe("--keep-reason", () => {
+  // Dependabot requested your review through CODEOWNERS: the request's actor is the bot itself.
+  const codeownersRequest = pr("me/app", 8, "dependabot[bot]", [
+    { event: "review_requested", actor: { login: "dependabot[bot]" } },
+  ]);
+  const mergedRequest = pr("me/app", 9, "dependabot[bot]", [], "closed");
+  const inbox = [
+    thread("8", "me/app", "PullRequest", `${API}/me/app/pulls/8`, "review_requested"),
+    thread("9", "me/app", "PullRequest", `${API}/me/app/pulls/9`, "review_requested"),
+    thread("3", "me/app", "CheckSuite", null, "ci_activity"),
+    thread("1", "me/app", "PullRequest", `${API}/me/app/pulls/1`, "subscribed"),
+  ];
+  const responses = { ...codeownersRequest, ...mergedRequest, ...botOnly };
+
+  test("keeps open threads with a matching reason after fetching only their subject", async () => {
+    const { api, marked, requested } = fakeApi(inbox, responses);
+    const results = await clean(api, options({ keepReasons: new Set(["review_requested", "ci_activity"]) }));
+
+    assert.deepEqual(marked.sort(), ["1", "9"]);
+    assert.deepEqual(
+      results.map((r) => [r.id, r.outcome, r.reason, r.url]),
+      [
+        ["8", "kept", "notification reason: review_requested", "https://github.com/me/app/pull/8"],
+        ["9", "done", undefined, "https://github.com/me/app/pull/9"],
+        ["3", "kept", "notification reason: ci_activity", null],
+        ["1", "done", undefined, "https://github.com/me/app/pull/1"],
+      ],
+    );
+    assert.deepEqual(
+      requested.filter((p) => p.includes("/8")),
+      [`${API}/me/app/pulls/8`],
+      "a thread kept by its reason had its activity loaded",
+    );
+  });
+
+  test("without a matching reason, the same threads are decided by who took part", async () => {
+    const { api, marked } = fakeApi(inbox, responses);
+    const results = await clean(api, options({ keepReasons: new Set(["mention"]) }));
+
+    assert.deepEqual(marked.sort(), ["1", "8", "9"]);
+    assert.equal(results[2]?.reason, "CheckSuite threads can't be inspected");
+  });
+
+  test("keeps a matching thread whose subject has no state, such as a release", async () => {
+    const release = {
+      [`${API}/me/app/releases/5`]: { author: { login: "dependabot[bot]" }, html_url: "https://github.com/me/app/releases/tag/v5" },
+    };
+    const inbox = [thread("5", "me/app", "Release", `${API}/me/app/releases/5`, "subscribed")];
+
+    const kept = fakeApi(inbox, release);
+    const [result] = await clean(kept.api, options({ keepReasons: new Set(["subscribed"]) }));
+    assert.deepEqual(kept.marked, []);
+    assert.equal(result?.reason, "notification reason: subscribed");
+
+    // Without the flag the same release is bot-only, so the reason is what keeps it.
+    const done = fakeApi(inbox, release);
+    await clean(done.api, options());
+    assert.deepEqual(done.marked, ["5"]);
   });
 });
 

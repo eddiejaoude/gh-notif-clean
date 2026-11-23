@@ -26,6 +26,8 @@ export interface CleanOptions {
   dryRun: boolean;
   /** Keep open PRs whose head commit has failed or unfinished checks. */
   keepFailed: boolean;
+  /** Lowercased notification reasons whose threads are kept until their subject is closed or merged. */
+  keepReasons: ReadonlySet<string>;
   /** Keep open PRs and issues, so only closed or merged ones are marked done. */
   closedOnly: boolean;
   concurrency?: number;
@@ -53,8 +55,7 @@ interface Subject {
   state?: string;
 }
 
-async function loadActivity(api: Api, url: string, type: string) {
-  const subject = await api.get<Subject>(url);
+async function loadActivity(api: Api, url: string, type: string, subject: Subject): Promise<ThreadActivity> {
   const activity: ThreadActivity = {
     author: subject.user?.login ?? subject.author?.login ?? null,
     timeline: [],
@@ -70,7 +71,7 @@ async function loadActivity(api: Api, url: string, type: string) {
     ]);
     Object.assign(activity, { timeline, reviewComments, commits });
   }
-  return { activity, htmlUrl: subject.html_url ?? null, headSha: subject.head?.sha ?? null, open: subject.state === "open" };
+  return activity;
 }
 
 /** Why the PR at `prUrl` is kept for the checks on commit `sha`, or `null`. */
@@ -118,21 +119,24 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
       url: null as string | null,
       participants: [] as string[],
     };
-    if (!n.subject.url) return { ...base, outcome: "kept", reason: `${n.subject.type} threads can't be inspected` };
+    const byReason = options.keepReasons.has(n.reason) ? `notification reason: ${n.reason}` : null;
+    if (!n.subject.url) return { ...base, outcome: "kept", reason: byReason ?? `${n.subject.type} threads can't be inspected` };
 
+    let subject: Subject;
     let logins: Set<string>;
-    let headSha: string | null;
-    let open: boolean;
     try {
-      const loaded = await loadActivity(api, n.subject.url, n.subject.type);
-      base.url = loaded.htmlUrl;
-      headSha = loaded.headSha;
-      open = loaded.open;
-      logins = participants(loaded.activity);
+      subject = await api.get<Subject>(n.subject.url);
+      base.url = subject.html_url ?? null;
+      // A closed or merged subject no longer needs you, so it's decided as if the reason didn't match.
+      // A release or commit has no state, so it keeps matching.
+      if (byReason && subject.state !== "closed") return { ...base, outcome: "kept", reason: byReason };
+      logins = participants(await loadActivity(api, n.subject.url, n.subject.type, subject));
       base.participants = [...logins].sort();
     } catch (error) {
       return { ...base, outcome: "kept", reason: `couldn't inspect: ${error instanceof Error ? error.message : String(error)}` };
     }
+    const headSha = subject.head?.sha ?? null;
+    const open = subject.state === "open";
 
     const decision = decide(logins, options.me, options.ignored);
     if (!decision.done) return { ...base, outcome: "kept", reason: decision.reason };

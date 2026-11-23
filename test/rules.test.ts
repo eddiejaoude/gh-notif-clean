@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { checksReason, DEFAULT_IGNORED, decide, participants, type ThreadActivity } from "../src/rules.ts";
+import {
+  checksReason,
+  DEFAULT_IGNORED,
+  decide,
+  NOTIFICATION_REASONS,
+  parseReasons,
+  participants,
+  type ThreadActivity,
+} from "../src/rules.ts";
 
 const ME = "octocat";
 const IGNORED = new Set(DEFAULT_IGNORED);
@@ -34,6 +42,25 @@ describe("decide (README examples)", () => {
 
   test("compares logins case-insensitively", () => {
     assert.equal(decide(new Set(["OctoCat", "Vercel[bot]"]), ME, IGNORED).done, true);
+  });
+});
+
+describe("parseReasons (--keep-reason)", () => {
+  test("accepts repeated values case-insensitively and lowercases them", () => {
+    assert.deepEqual(
+      [...parseReasons(["Review_Requested", "team_mention", "REVIEW_REQUESTED"])].sort(),
+      ["review_requested", "team_mention"],
+    );
+  });
+
+  test("rejects an unknown reason, naming it and every valid reason", () => {
+    assert.throws(
+      () => parseReasons(["mention", "bogus"]),
+      (error: Error) =>
+        error.message.includes("'bogus'") &&
+        !error.message.includes("'mention'") &&
+        NOTIFICATION_REASONS.every((r) => error.message.includes(r)),
+    );
   });
 });
 

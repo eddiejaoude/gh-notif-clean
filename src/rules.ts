@@ -69,6 +69,35 @@ export function decide(
   return { done: true };
 }
 
+/** Notification reasons GitHub documents, as `--keep-reason` accepts them. */
+export const NOTIFICATION_REASONS: readonly string[] = [
+  "agent_session_finished",
+  "approval_requested",
+  "assign",
+  "author",
+  "ci_activity",
+  "comment",
+  "invitation",
+  "manual",
+  "member_feature_requested",
+  "mention",
+  "review_requested",
+  "security_advisory_credit",
+  "security_alert",
+  "state_change",
+  "subscribed",
+  "team_mention",
+];
+
+/** Lowercased set of `values`; throws listing the valid reasons if one isn't a notification reason. */
+export function parseReasons(values: readonly string[]): Set<string> {
+  const unknown = values.filter((v) => !NOTIFICATION_REASONS.includes(v.toLowerCase()));
+  if (unknown.length > 0) {
+    throw new Error(`unknown reason ${unknown.map((v) => `'${v}'`).join(", ")}; valid: ${NOTIFICATION_REASONS.join(", ")}`);
+  }
+  return new Set(values.map((v) => v.toLowerCase()));
+}
+
 /** Latest status per context on a commit, from the combined status endpoint. */
 export interface CommitStatus {
   context: string;
