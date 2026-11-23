@@ -15,7 +15,7 @@ const IGNORED = new Set(DEFAULT_IGNORED);
 const who = (login: string) => ({ login });
 
 function activity(parts: Partial<ThreadActivity>): ThreadActivity {
-  return { author: null, timeline: [], reviewComments: [], commits: [], ...parts };
+  return { author: null, timeline: [], reviewComments: [], commits: [], discussionComments: [], ...parts };
 }
 
 describe("decide (README examples)", () => {
@@ -145,6 +145,16 @@ describe("participants", () => {
       [...logins].sort(),
       ["commenter", "commit-commenter", "dependabot[bot]", "line-commenter", "pusher", "reviewer"],
     );
+  });
+
+  test("counts discussion commenters", () => {
+    const logins = participants(
+      activity({
+        author: "github-actions[bot]",
+        discussionComments: [{ user: who("commenter") }, { user: who("replier") }, { user: null }],
+      }),
+    );
+    assert.deepEqual([...logins].sort(), ["commenter", "github-actions[bot]", "replier"]);
   });
 
   test("ignores the account notified by mentioned and subscribed events", () => {
