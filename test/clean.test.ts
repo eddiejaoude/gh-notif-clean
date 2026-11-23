@@ -233,6 +233,23 @@ describe("--keep-reason", () => {
     assert.deepEqual(marked.sort(), ["1", "8", "9"]);
     assert.equal(results[2]?.reason, "CheckSuite threads can't be inspected");
   });
+
+  test("keeps a matching thread whose subject has no state, such as a release", async () => {
+    const release = {
+      [`${API}/me/app/releases/5`]: { author: { login: "dependabot[bot]" }, html_url: "https://github.com/me/app/releases/tag/v5" },
+    };
+    const inbox = [thread("5", "me/app", "Release", `${API}/me/app/releases/5`, "subscribed")];
+
+    const kept = fakeApi(inbox, release);
+    const [result] = await clean(kept.api, options({ keepReasons: new Set(["subscribed"]) }));
+    assert.deepEqual(kept.marked, []);
+    assert.equal(result?.reason, "notification reason: subscribed");
+
+    // Without the flag the same release is bot-only, so the reason is what keeps it.
+    const done = fakeApi(inbox, release);
+    await clean(done.api, options());
+    assert.deepEqual(done.marked, ["5"]);
+  });
 });
 
 describe("--closed-only", () => {

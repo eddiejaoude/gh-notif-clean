@@ -128,6 +128,7 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
       subject = await api.get<Subject>(n.subject.url);
       base.url = subject.html_url ?? null;
       // A closed or merged subject no longer needs you, so it's decided as if the reason didn't match.
+      // A release or commit has no state, so it keeps matching.
       if (byReason && subject.state !== "closed") return { ...base, outcome: "kept", reason: byReason };
       logins = participants(await loadActivity(api, n.subject.url, n.subject.type, subject));
       base.participants = [...logins].sort();
