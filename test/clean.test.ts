@@ -195,34 +195,41 @@ describe("--keep-reason", () => {
   const codeownersRequest = pr("me/app", 8, "dependabot[bot]", [
     { event: "review_requested", actor: { login: "dependabot[bot]" } },
   ]);
+  const mergedRequest = pr("me/app", 9, "dependabot[bot]", [], "closed");
   const inbox = [
     thread("8", "me/app", "PullRequest", `${API}/me/app/pulls/8`, "review_requested"),
+    thread("9", "me/app", "PullRequest", `${API}/me/app/pulls/9`, "review_requested"),
     thread("3", "me/app", "CheckSuite", null, "ci_activity"),
     thread("1", "me/app", "PullRequest", `${API}/me/app/pulls/1`, "subscribed"),
   ];
-  const responses = { ...codeownersRequest, ...botOnly };
+  const responses = { ...codeownersRequest, ...mergedRequest, ...botOnly };
 
-  test("keeps threads with a matching reason without fetching them", async () => {
+  test("keeps open threads with a matching reason after fetching only their subject", async () => {
     const { api, marked, requested } = fakeApi(inbox, responses);
     const results = await clean(api, options({ keepReasons: new Set(["review_requested", "ci_activity"]) }));
 
-    assert.deepEqual(marked, ["1"]);
+    assert.deepEqual(marked.sort(), ["1", "9"]);
     assert.deepEqual(
-      results.map((r) => [r.id, r.outcome, r.reason]),
+      results.map((r) => [r.id, r.outcome, r.reason, r.url]),
       [
-        ["8", "kept", "notification reason: review_requested"],
-        ["3", "kept", "notification reason: ci_activity"],
-        ["1", "done", undefined],
+        ["8", "kept", "notification reason: review_requested", "https://github.com/me/app/pull/8"],
+        ["9", "done", undefined, "https://github.com/me/app/pull/9"],
+        ["3", "kept", "notification reason: ci_activity", null],
+        ["1", "done", undefined, "https://github.com/me/app/pull/1"],
       ],
     );
-    assert.ok(!requested.some((p) => p.includes("/8")), "a thread kept by its reason was fetched");
+    assert.deepEqual(
+      requested.filter((p) => p.includes("/8")),
+      [`${API}/me/app/pulls/8`],
+      "a thread kept by its reason had its activity loaded",
+    );
   });
 
   test("without a matching reason, the same threads are decided by who took part", async () => {
     const { api, marked } = fakeApi(inbox, responses);
     const results = await clean(api, options({ keepReasons: new Set(["mention"]) }));
 
-    assert.deepEqual(marked.sort(), ["1", "8"]);
-    assert.equal(results[1]?.reason, "CheckSuite threads can't be inspected");
+    assert.deepEqual(marked.sort(), ["1", "8", "9"]);
+    assert.equal(results[2]?.reason, "CheckSuite threads can't be inspected");
   });
 });

@@ -16,8 +16,9 @@ Flags:
       --unread-only         Skip threads you have already read
       --keep-failed         Keep open PRs whose latest commit has failed or unfinished checks
       --keep-reason REASON  Keep threads whose notification reason is REASON (repeatable), e.g.
-                            review_requested. GitHub sets the reason from the latest
-                            notification on the thread, not from every notification it had
+                            review_requested, until their PR or issue is closed or merged.
+                            GitHub sets the reason from the latest notification on the
+                            thread, not from every notification it had
       --json                Print results as JSON
   -h, --help                Show this help
 
