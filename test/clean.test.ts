@@ -21,7 +21,10 @@ function fakeApi(notifications: Notification[], responses: Record<string, unknow
   };
   const api: Api = {
     async get<T>(path: string) {
-      return lookup(path) as T;
+      const body = lookup(path);
+      // The real `get` reads one page, so a list has to go through `getAll`.
+      if (Array.isArray(body)) throw new Error(`get() on a list: ${path}`);
+      return body as T;
     },
     async getAll<T>(path: string, key?: string) {
       if (path.startsWith("notifications")) return notifications as T[];
@@ -113,6 +116,78 @@ test("a failed mark-done is reported as failed", async () => {
   const [result] = await clean(api, options());
   assert.equal(result?.outcome, "failed");
   assert.equal(result?.reason, "500 server error");
+});
+
+describe("discussions", () => {
+  /** Responses for a discussion `github-actions[bot]` started, with the given comments. */
+  const discussion = (n: number, comments: unknown[]) => ({
+    [`${API}/me/app/discussions/${n}`]: {
+      user: { login: "github-actions[bot]" },
+      html_url: `https://github.com/me/app/discussions/${n}`,
+      state: "open",
+    },
+    [`${API}/me/app/discussions/${n}/comments`]: comments,
+  });
+  /** A discussion comment; `parentId` makes it a reply to that comment. */
+  const comment = (id: number, login: string, parentId: number | null = null) => ({ id, parent_id: parentId, user: { login } });
+  const ignored = new Set([...DEFAULT_IGNORED, "github-actions[bot]"]);
+
+  test("keeps a bot-started discussion a person replied to and marks one only you commented on done", async () => {
+    const inbox = [
+      thread("1", "me/app", "Discussion", `${API}/me/app/discussions/1`),
+      thread("2", "me/app", "Discussion", `${API}/me/app/discussions/2`),
+    ];
+    const { api, marked } = fakeApi(inbox, {
+      ...discussion(1, [comment(10, "github-actions[bot]"), comment(11, "contributor", 10)]),
+      ...discussion(2, [comment(20, "octocat")]),
+    });
+    const results = await clean(api, options({ ignored }));
+
+    assert.deepEqual(marked, ["2"]);
+    assert.deepEqual(
+      results.map((r) => [r.id, r.outcome, r.reason, r.participants]),
+      [
+        ["1", "kept", "contributor", ["contributor", "github-actions[bot]"]],
+        ["2", "done", undefined, ["github-actions[bot]", "octocat"]],
+      ],
+    );
+  });
+
+  test("keeps a discussion whose comments can't be fetched", async () => {
+    const { api, marked } = fakeApi([thread("1", "me/app", "Discussion", `${API}/me/app/discussions/1`)], {
+      [`${API}/me/app/discussions/1`]: { user: { login: "github-actions[bot]" }, state: "open" },
+    });
+    const [result] = await clean(api, options({ ignored }));
+    assert.deepEqual(marked, []);
+    assert.match(result?.reason ?? "", /^couldn't inspect: 404 .*\/discussions\/1\/comments$/);
+  });
+
+  test("fetches comments only for discussions", async () => {
+    const inbox = [
+      thread("1", "me/app", "Discussion", `${API}/me/app/discussions/1`),
+      thread("2", "me/app", "Issue", `${API}/me/app/issues/2`),
+      thread("3", "me/app", "Release", `${API}/me/app/releases/3`),
+      thread("4", "me/app", "Commit", `${API}/me/app/commits/abc4`),
+    ];
+    const { api, marked, requested } = fakeApi(inbox, {
+      ...discussion(1, []),
+      [`${API}/me/app/issues/2`]: { user: { login: "github-actions[bot]" }, state: "open" },
+      [`${API}/me/app/issues/2/timeline`]: [],
+      [`${API}/me/app/releases/3`]: { author: { login: "github-actions[bot]" } },
+      [`${API}/me/app/commits/abc4`]: { author: { login: "github-actions[bot]" } },
+    });
+    await clean(api, options({ ignored }));
+
+    assert.deepEqual(marked.sort(), ["1", "2", "3", "4"]);
+    assert.deepEqual(requested.sort(), [
+      `${API}/me/app/commits/abc4`,
+      `${API}/me/app/discussions/1`,
+      `${API}/me/app/discussions/1/comments`,
+      `${API}/me/app/issues/2`,
+      `${API}/me/app/issues/2/timeline`,
+      `${API}/me/app/releases/3`,
+    ]);
+  });
 });
 
 describe("--keep-failed", () => {
@@ -325,6 +400,7 @@ describe("--closed-only", () => {
     [`${API}/me/app/commits/abc7`]: { author: { login: "dependabot[bot]" }, html_url: "https://github.com/me/app/commit/abc7" },
     // Only PRs and issues are held back, even when another subject reports itself open.
     [`${API}/me/app/discussions/8`]: { user: { login: "dependabot[bot]" }, state: "open" },
+    [`${API}/me/app/discussions/8/comments`]: [],
   };
   const ignored = new Set([...DEFAULT_IGNORED, "github-actions[bot]"]);
 

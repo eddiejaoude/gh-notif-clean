@@ -63,6 +63,7 @@ async function loadActivity(api: Api, url: string, type: string, subject: Subjec
     timeline: [],
     reviewComments: [],
     commits: [],
+    discussionComments: [],
   };
   if (type === "PullRequest" || type === "Issue") {
     const issueUrl = url.replace("/pulls/", "/issues/");
@@ -72,6 +73,11 @@ async function loadActivity(api: Api, url: string, type: string, subject: Subjec
       type === "PullRequest" ? api.getAll<{ author: { login: string } | null }>(`${url}/commits`) : [],
     ]);
     Object.assign(activity, { timeline, reviewComments, commits });
+  } else if (type === "Discussion") {
+    // GitHub doesn't document its REST endpoints for repository discussions, so this rests on what the API
+    // returned when checked in November 2026, not on a published contract. The list is flat: replies to a
+    // comment come back alongside top-level comments, with `parent_id` set, and it pages like other lists.
+    activity.discussionComments = await api.getAll<{ user: { login: string } | null }>(`${url}/comments`);
   }
   return activity;
 }

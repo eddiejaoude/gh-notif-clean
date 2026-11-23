@@ -67,7 +67,9 @@ Each notification is a thread about one PR, issue, release, commit or discussion
 - pushed a commit to the PR (commit author account)
 - requested a review, assigned, labelled, merged, closed, reopened, renamed, or referenced the thread from elsewhere. This covers any action in the PR or issue timeline.
 
-Being mentioned in or subscribed to a thread doesn't count as taking part. For releases, commits and discussions, only the author is checked.
+Being mentioned in or subscribed to a thread doesn't count as taking part.
+
+For discussions, it collects the author and everyone who commented, replies to comments included. That adds one API request per discussion (more past 100 comments). Other discussion activity, such as labelling it or marking an answer, isn't checked. For releases and commits, only the author is checked.
 
 It then checks the whole group:
 
@@ -104,6 +106,8 @@ With `--keep-reason`, a thread whose [notification reason](https://docs.github.c
 | Your own PR with no bot activity | you | no | no | **Kept**: nothing bot-generated |
 | Dependabot PR where a contributor comments "LGTM" | `dependabot[bot]`, a contributor | the contributor | yes | **Kept** |
 | Dependabot PR where a maintainer only requested your review | `dependabot[bot]`, the maintainer | the maintainer | yes | **Kept** |
+| Discussion a workflow opened as `github-actions[bot]`, where a contributor replied to the bot's comment, run with `--ignore 'github-actions[bot]'` | `github-actions[bot]`, a contributor | the contributor | yes | **Kept**: a real person, even in a reply |
+| A discussion that workflow opened where only you commented, run with `--ignore 'github-actions[bot]'` | `github-actions[bot]`, you | no | yes | **Done** |
 | Check suite, or a thread whose details can't be fetched | unknown | — | — | **Kept**: can't be inspected |
 
 ## Development
