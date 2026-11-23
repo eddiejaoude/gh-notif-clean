@@ -8,15 +8,15 @@ const HELP = `Mark GitHub notifications as done when only ignored bots (and you)
 Usage: gh notif-clean [flags]
 
 Flags:
-  -n, --dry-run          List what would be marked done without changing anything
-  -v, --verbose          Also list kept threads and why they were kept
-  -i, --ignore LOGIN     Also ignore this account (repeatable), e.g. 'cla-assistant[bot]'
-      --no-default-bots  Ignore only the accounts given with --ignore
-  -R, --repo REPO        Only process OWNER/NAME or every repo of OWNER (repeatable)
-      --unread-only      Skip threads you have already read
-      --keep-failed      Keep open PRs whose latest commit has failed or unfinished checks
-      --json             Print results as JSON
-  -h, --help             Show this help
+  -n, --dry-run             List what would be marked done without changing anything
+  -v, --verbose             Also list kept threads and why they were kept
+  -i, --ignore LOGIN        Also ignore this account (repeatable), e.g. 'cla-assistant[bot]'
+      --no-default-bots     Ignore only the accounts given with --ignore
+  -R, --repo REPO           Only process OWNER/NAME or every repo of OWNER (repeatable)
+      --unread-only         Skip threads you have already read
+      --keep-failed         Keep open PRs whose latest commit has failed or unfinished checks
+      --json                Print results as JSON
+  -h, --help                Show this help
 
 Ignored by default: ${DEFAULT_IGNORED.join(", ")}
 `;
