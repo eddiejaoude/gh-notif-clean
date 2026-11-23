@@ -26,6 +26,8 @@ export interface CleanOptions {
   dryRun: boolean;
   /** Keep open PRs whose head commit has failed or unfinished checks. */
   keepFailed: boolean;
+  /** Keep open PRs and issues, so only closed or merged ones are marked done. */
+  closedOnly: boolean;
   concurrency?: number;
 }
 
@@ -134,6 +136,9 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
 
     const decision = decide(logins, options.me, options.ignored);
     if (!decision.done) return { ...base, outcome: "kept", reason: decision.reason };
+    if (options.closedOnly && open && (n.subject.type === "PullRequest" || n.subject.type === "Issue")) {
+      return { ...base, outcome: "kept", reason: "still open" };
+    }
     if (options.keepFailed && n.subject.type === "PullRequest" && open) {
       let reason: string | null;
       try {

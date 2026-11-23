@@ -29,6 +29,7 @@ gh notif-clean --ignore 'cla-assistant[bot]' # also ignore another bot for this 
 gh notif-clean -R eddiejaoude/StackDash      # only one repository
 gh notif-clean -R paypal                     # only repositories owned by paypal
 gh notif-clean --keep-failed                 # but keep open PRs whose deploy or CI failed or is still running
+gh notif-clean --closed-only                 # but keep open PRs and issues until they're merged or closed
 gh notif-clean --json -n | jq '.threads[] | select(.outcome == "kept")'
 ```
 
@@ -41,6 +42,7 @@ gh notif-clean --json -n | jq '.threads[] | select(.outcome == "kept")'
 | `-R`, `--repo REPO` | Only process `OWNER/NAME`, or every repository of `OWNER` (repeatable) |
 | `--unread-only` | Skip threads you've already read |
 | `--keep-failed` | Keep open PRs whose latest commit has failed or unfinished checks, such as a failed Vercel deploy |
+| `--closed-only` | Keep open PRs and issues, so only closed or merged ones are marked done |
 | `--json` | Print the summary and every thread's outcome as JSON |
 | `-h`, `--help` | Show help |
 
@@ -74,6 +76,8 @@ The thread is marked done only if both checks pass. The check covers the thread'
 
 With `--keep-failed`, an open PR that passes both checks is still kept if a check on its latest commit failed or hasn't finished. That covers commit statuses that are `failure` or `error` (how Vercel reports a failed deploy) and check runs that ended `failure`, `timed_out` or `action_required`. Unfinished checks keep the thread too: a check changing later doesn't send a notification, so a thread marked done before its deploy fails wouldn't come back. A check run cancelled after it started keeps it unless another run with the same name passed, was skipped or was neutral, because GitHub Actions reports a job that hit `timeout-minutes` as cancelled. A run cancelled before it started, such as one a newer run on the same commit replaced, doesn't keep it. Passed, neutral and skipped checks don't keep it. A PR whose checks can't be read is kept too. Closed and merged PRs are left to the two checks above: a failed check there is no longer anyone's to fix. The flag adds two API requests (more past 100 checks) for each open PR that would otherwise be marked done.
 
+With `--closed-only`, an open PR or issue that passes both checks is still kept, with the reason `still open`, so an open Dependabot bump stays in your inbox until it's merged or closed. Releases, commits and discussions are unaffected. The flag uses the PR or issue already fetched, so it adds no API requests, and with `--keep-failed` an open PR is kept without reading its checks.
+
 | Example thread | Who took part | Anyone else? | Ignored bot present? | Result |
 |---|---|---|---|---|
 | Your PR with a Vercel preview comment | you, `vercel[bot]` | no | yes | **Done** |
@@ -83,6 +87,8 @@ With `--keep-failed`, an open PR that passes both checks is still kept if a chec
 | Dependabot bump whose CI is still running, run with `--keep-failed` | `dependabot[bot]`, you | no | yes | **Kept**: checks pending, so the next run checks it again |
 | Dependabot bump whose Actions deploy job timed out, run with `--keep-failed` | `dependabot[bot]`, you | no | yes | **Kept**: checks cancelled |
 | Closed Dependabot bump whose CI failed, run with `--keep-failed` | `dependabot[bot]`, you | no | yes | **Done**: the PR is closed |
+| Open Dependabot bump, run with `--closed-only` | `dependabot[bot]`, you | no | yes | **Kept**: still open |
+| Merged Dependabot bump, run with `--closed-only` | `dependabot[bot]`, you | no | yes | **Done** |
 | Dependabot bump that the CLA bot commented on | `dependabot[bot]`, `vercel[bot]`, `cla-assistant[bot]`, you | `cla-assistant[bot]` | yes | **Kept**: that bot isn't ignored (use `--ignore 'cla-assistant[bot]'`) |
 | Your issue that a contributor commented on | you, a contributor | the contributor | no | **Kept**: a real person |
 | A contributor's PR with a Vercel preview comment | a contributor, `vercel[bot]` | the contributor | yes | **Kept**: a real person, even though Vercel commented |
