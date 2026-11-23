@@ -6,8 +6,8 @@ import { DEFAULT_IGNORED } from "../src/rules.ts";
 
 const API = "https://api.github.com/repos";
 
-function thread(id: string, repo: string, type: string, url: string | null): Notification {
-  return { id, unread: true, reason: "author", repository: { full_name: repo }, subject: { title: `t${id}`, type, url } };
+function thread(id: string, repo: string, type: string, url: string | null, reason = "author"): Notification {
+  return { id, unread: true, reason, repository: { full_name: repo }, subject: { title: `t${id}`, type, url } };
 }
 
 /** Fake API serving fixed responses; records every path fetched and thread marked done. */
@@ -63,6 +63,7 @@ const options = (overrides: Partial<CleanOptions> = {}): CleanOptions => ({
   unreadOnly: false,
   dryRun: false,
   keepFailed: false,
+  keepReasons: new Set(),
   ...overrides,
 });
 
@@ -186,5 +187,42 @@ describe("--keep-failed", () => {
     assert.equal(result?.outcome, "done");
     assert.deepEqual(marked, ["6"]);
     assert.ok(!requested.some((p) => p.includes("/commits/")));
+  });
+});
+
+describe("--keep-reason", () => {
+  // Dependabot requested your review through CODEOWNERS: the request's actor is the bot itself.
+  const codeownersRequest = pr("me/app", 8, "dependabot[bot]", [
+    { event: "review_requested", actor: { login: "dependabot[bot]" } },
+  ]);
+  const inbox = [
+    thread("8", "me/app", "PullRequest", `${API}/me/app/pulls/8`, "review_requested"),
+    thread("3", "me/app", "CheckSuite", null, "ci_activity"),
+    thread("1", "me/app", "PullRequest", `${API}/me/app/pulls/1`, "subscribed"),
+  ];
+  const responses = { ...codeownersRequest, ...botOnly };
+
+  test("keeps threads with a matching reason without fetching them", async () => {
+    const { api, marked, requested } = fakeApi(inbox, responses);
+    const results = await clean(api, options({ keepReasons: new Set(["review_requested", "ci_activity"]) }));
+
+    assert.deepEqual(marked, ["1"]);
+    assert.deepEqual(
+      results.map((r) => [r.id, r.outcome, r.reason]),
+      [
+        ["8", "kept", "notification reason: review_requested"],
+        ["3", "kept", "notification reason: ci_activity"],
+        ["1", "done", undefined],
+      ],
+    );
+    assert.ok(!requested.some((p) => p.includes("/8")), "a thread kept by its reason was fetched");
+  });
+
+  test("without a matching reason, the same threads are decided by who took part", async () => {
+    const { api, marked } = fakeApi(inbox, responses);
+    const results = await clean(api, options({ keepReasons: new Set(["mention"]) }));
+
+    assert.deepEqual(marked.sort(), ["1", "8"]);
+    assert.equal(results[1]?.reason, "CheckSuite threads can't be inspected");
   });
 });

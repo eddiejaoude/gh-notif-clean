@@ -26,6 +26,8 @@ export interface CleanOptions {
   dryRun: boolean;
   /** Keep open PRs whose head commit has failed or unfinished checks. */
   keepFailed: boolean;
+  /** Lowercased notification reasons whose threads are kept without being fetched. */
+  keepReasons: ReadonlySet<string>;
   concurrency?: number;
 }
 
@@ -116,6 +118,7 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
       url: null as string | null,
       participants: [] as string[],
     };
+    if (options.keepReasons.has(n.reason)) return { ...base, outcome: "kept", reason: `notification reason: ${n.reason}` };
     if (!n.subject.url) return { ...base, outcome: "kept", reason: `${n.subject.type} threads can't be inspected` };
 
     let logins: Set<string>;

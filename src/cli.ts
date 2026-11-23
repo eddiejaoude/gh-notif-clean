@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { clean, type ThreadResult } from "./clean.ts";
 import { createApi, ghAuth } from "./github.ts";
-import { DEFAULT_IGNORED } from "./rules.ts";
+import { DEFAULT_IGNORED, NOTIFICATION_REASONS, parseReasons } from "./rules.ts";
 
 const HELP = `Mark GitHub notifications as done when only ignored bots (and you) took part.
 
@@ -15,10 +15,14 @@ Flags:
   -R, --repo REPO           Only process OWNER/NAME or every repo of OWNER (repeatable)
       --unread-only         Skip threads you have already read
       --keep-failed         Keep open PRs whose latest commit has failed or unfinished checks
+      --keep-reason REASON  Keep threads whose notification reason is REASON (repeatable), e.g.
+                            review_requested. GitHub sets the reason from the latest
+                            notification on the thread, not from every notification it had
       --json                Print results as JSON
   -h, --help                Show this help
 
 Ignored by default: ${DEFAULT_IGNORED.join(", ")}
+Reasons for --keep-reason: ${NOTIFICATION_REASONS.join(", ")}
 `;
 
 const LABELS = { done: "DONE", "would-done": "WOULD DONE", kept: "KEEP", failed: "FAIL" } as const;
@@ -43,6 +47,7 @@ async function main(argv: string[]): Promise<number> {
         repo: { type: "string", short: "R", multiple: true, default: [] },
         "unread-only": { type: "boolean", default: false },
         "keep-failed": { type: "boolean", default: false },
+        "keep-reason": { type: "string", multiple: true, default: [] },
         json: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
@@ -62,6 +67,14 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
+  let keepReasons: Set<string>;
+  try {
+    keepReasons = parseReasons(values["keep-reason"]);
+  } catch (error) {
+    process.stderr.write(`--keep-reason: ${(error as Error).message}\n`);
+    return 2;
+  }
+
   const api = createApi(ghAuth());
   const { login: me } = await api.get<{ login: string }>("user");
   const results = await clean(api, {
@@ -71,6 +84,7 @@ async function main(argv: string[]): Promise<number> {
     unreadOnly: values["unread-only"],
     dryRun: values["dry-run"],
     keepFailed: values["keep-failed"],
+    keepReasons,
   });
 
   const count = (...outcomes: ThreadResult["outcome"][]) =>
