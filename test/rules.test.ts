@@ -65,14 +65,18 @@ describe("parseReasons (--keep-reason)", () => {
 });
 
 describe("checksReason (README --keep-failed examples)", () => {
-  /** A check run that started at 10:00 and, once completed, ran for `seconds`. */
-  const run = (name: string, status: string, conclusion: string | null = null, seconds = 60) => ({
-    name,
-    status,
-    conclusion,
-    started_at: "2026-11-23T10:00:00Z",
-    completed_at: status === "completed" ? new Date(Date.parse("2026-11-23T10:00:00Z") + seconds * 1000).toISOString() : null,
-  });
+  /** A check run that started `start` seconds after 10:00 and, once completed, ran for `seconds`. */
+  const run = (name: string, status: string, conclusion: string | null = null, seconds = 60, start = 0) => {
+    const startedAt = Date.parse("2026-11-23T10:00:00Z") + start * 1000;
+    return {
+      name,
+      status,
+      conclusion,
+      started_at: new Date(startedAt).toISOString(),
+      completed_at: status === "completed" ? new Date(startedAt + seconds * 1000).toISOString() : null,
+    };
+  };
+  const gate = "All required checks pass";
 
   test("a failed Vercel deploy keeps the thread", () => {
     assert.equal(checksReason([{ context: "Vercel", state: "failure" }], []), "checks failed: Vercel");
@@ -95,6 +99,53 @@ describe("checksReason (README --keep-failed examples)", () => {
 
   test("failed checks are reported over unfinished ones", () => {
     assert.equal(checksReason([{ context: "Vercel", state: "pending" }], [run("test", "completed", "failure")]), "checks failed: test");
+  });
+
+  test("a failed run that a same-named run started after it completed passed doesn't keep the thread", () => {
+    for (const conclusion of ["failure", "timed_out", "action_required"]) {
+      const reRun = run(gate, "completed", "success", 60, 86_400);
+      assert.equal(checksReason([], [run(gate, "completed", conclusion), reRun]), null, conclusion);
+      assert.equal(checksReason([], [reRun, run(gate, "completed", conclusion)]), null, `${conclusion}, listed after`);
+    }
+  });
+
+  test("a failed run whose same-named pass overlapped it or came first keeps the thread", () => {
+    // Same job in parallel push and pull_request suites; one starting the second the failure ended; an earlier pass.
+    for (const start of [30, 60, -120]) {
+      assert.equal(
+        checksReason([], [run(gate, "completed", "failure"), run(gate, "completed", "success", 60, start)]),
+        `checks failed: ${gate}`,
+        `pass started at ${start}s`,
+      );
+    }
+  });
+
+  test("a failed run whose later namesake failed, was skipped, neutral or cancelled keeps the thread", () => {
+    for (const conclusion of ["failure", "skipped", "neutral", "cancelled"]) {
+      assert.equal(
+        checksReason([], [run(gate, "completed", "failure"), run(gate, "completed", conclusion, 60, 3600)]),
+        `checks failed: ${gate}`,
+        conclusion,
+      );
+    }
+  });
+
+  test("a later pass doesn't excuse a failed run of another name", () => {
+    assert.equal(
+      checksReason([], [run("test", "completed", "failure"), run("lint", "completed", "success", 60, 3600)]),
+      "checks failed: test",
+    );
+  });
+
+  test("a failed run or a later pass with a missing time keeps the thread", () => {
+    const failure = run(gate, "completed", "failure");
+    const reRun = run(gate, "completed", "success", 60, 3600);
+    for (const runs of [
+      [{ ...failure, completed_at: null }, reRun],
+      [failure, { ...reRun, started_at: null }],
+    ]) {
+      assert.equal(checksReason([], runs), `checks failed: ${gate}`);
+    }
   });
 
   test("a run cancelled after it started keeps the thread, as a timed-out Actions job reports cancelled", () => {

@@ -123,8 +123,10 @@ const FAILED_CONCLUSIONS: Record<string, true> = { failure: true, timed_out: tru
  * Why a PR's head commit keeps its thread: checks that failed, or else checks
  * that haven't finished, or else check runs that were cancelled after they
  * started with no same-named run that passed, was skipped or was neutral.
- * Unfinished checks keep it because a status changing doesn't notify, so a
- * thread marked done now wouldn't come back if one fails. Cancelled runs keep
+ * A failed check run doesn't count when a same-named run that started after
+ * it completed passed: that run replaced it, as a re-run in a new check suite
+ * does. Unfinished checks keep it because a status changing doesn't notify, so
+ * a thread marked done now wouldn't come back if one fails. Cancelled runs keep
  * it because GitHub Actions reports a job that hit `timeout-minutes` as
  * cancelled, not timed out. `null` otherwise.
  */
@@ -133,14 +135,17 @@ export function checksReason(statuses: readonly CommitStatus[], checkRuns: reado
   const pending = new Set<string>();
   const cancelled = new Set<string>();
   const settled = new Set<string>();
+  const passed = checkRuns.filter((run) => run.conclusion === "success");
   for (const status of statuses) {
     if (FAILED_STATES[status.state]) failed.add(status.context);
     else if (status.state === "pending") pending.add(status.context);
   }
   for (const run of checkRuns) {
     if (run.status !== "completed") pending.add(run.name);
-    else if (run.conclusion && FAILED_CONCLUSIONS[run.conclusion]) failed.add(run.name);
-    else if (run.conclusion === "cancelled") {
+    else if (run.conclusion && FAILED_CONCLUSIONS[run.conclusion]) {
+      // A namesake that overlapped this run, such as the same job in a parallel `push` suite, didn't replace it.
+      if (!passed.some((later) => later.name === run.name && startedAfter(later, run))) failed.add(run.name);
+    } else if (run.conclusion === "cancelled") {
       // A run cancelled before it started can't have hit `timeout-minutes`.
       const ran = run.started_at && run.completed_at && Date.parse(run.completed_at) > Date.parse(run.started_at);
       if (ran) cancelled.add(run.name);
@@ -151,6 +156,12 @@ export function checksReason(statuses: readonly CommitStatus[], checkRuns: reado
   if (pending.size > 0) return `checks pending: ${names(pending)}`;
   if (cancelled.size > 0) return `checks cancelled: ${names(cancelled)}`;
   return null;
+}
+
+/** Whether `later` started after `earlier` completed; a missing time doesn't prove it. */
+function startedAfter(later: CheckRun, earlier: CheckRun): boolean {
+  if (!later.started_at || !earlier.completed_at) return false;
+  return Date.parse(later.started_at) > Date.parse(earlier.completed_at);
 }
 
 /** The first three names, sorted, then how many more: head commits can carry over 100 checks. */
