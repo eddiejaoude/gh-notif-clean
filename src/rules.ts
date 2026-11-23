@@ -23,6 +23,8 @@ export interface ThreadActivity {
   timeline: readonly TimelineEvent[];
   reviewComments: readonly { user: Account | null }[];
   commits: readonly { author: Account | null }[];
+  /** Comments on a discussion, threaded replies included. */
+  discussionComments: readonly { user: Account | null }[];
 }
 
 /**
@@ -47,6 +49,7 @@ export function participants(activity: ThreadActivity): Set<string> {
   }
   for (const comment of activity.reviewComments) add(comment.user);
   for (const commit of activity.commits) add(commit.author);
+  for (const comment of activity.discussionComments) add(comment.user);
   return logins;
 }
 
