@@ -239,20 +239,46 @@ describe("--closed-only", () => {
     );
   });
 
+  test("a dry run keeps the same threads", async () => {
+    const { api, marked } = fakeApi(inbox, responses);
+    const results = await clean(api, options({ closedOnly: true, ignored, dryRun: true }));
+    assert.deepEqual(marked, []);
+    assert.deepEqual(
+      results.map((r) => [r.id, r.outcome]),
+      [
+        ["1", "kept"],
+        ["2", "kept"],
+        ["3", "would-done"],
+        ["4", "kept"],
+        ["5", "would-done"],
+        ["6", "would-done"],
+        ["7", "would-done"],
+        ["8", "would-done"],
+      ],
+    );
+  });
+
   test("without the flag, open PRs and issues are marked done", async () => {
     const { api, marked } = fakeApi(inbox, responses);
     await clean(api, options({ ignored }));
     assert.deepEqual(marked.sort(), ["1", "3", "4", "5", "6", "7", "8"]);
   });
 
-  test("with --keep-failed, an open PR is kept as still open without reading its checks", async () => {
-    const { api, marked, requested } = fakeApi([inbox[0]!], {
+  test("with --keep-failed, a failed check is the reason given and other open PRs are still open", async () => {
+    const { api, marked } = fakeApi([inbox[0]!, thread("9", "me/app", "PullRequest", `${API}/me/app/pulls/9`)], {
       ...responses,
+      ...pr("me/app", 9, "dependabot[bot]", [you]),
       ...checks("me/app", "sha1", [{ context: "Vercel", state: "failure" }], []),
+      ...checks("me/app", "sha9", [{ context: "Vercel", state: "success" }], []),
     });
-    const [result] = await clean(api, options({ closedOnly: true, keepFailed: true }));
+    const results = await clean(api, options({ closedOnly: true, keepFailed: true }));
     assert.deepEqual(marked, []);
-    assert.equal(result?.reason, "still open");
-    assert.ok(!requested.some((p) => p.includes("/commits/")));
+    assert.deepEqual(
+      results.map((r) => [r.id, r.reason]),
+      [
+        ["1", "checks failed: Vercel"],
+        ["9", "still open"],
+      ],
+    );
   });
 });

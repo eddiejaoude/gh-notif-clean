@@ -136,9 +136,6 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
 
     const decision = decide(logins, options.me, options.ignored);
     if (!decision.done) return { ...base, outcome: "kept", reason: decision.reason };
-    if (options.closedOnly && open && (n.subject.type === "PullRequest" || n.subject.type === "Issue")) {
-      return { ...base, outcome: "kept", reason: "still open" };
-    }
     if (options.keepFailed && n.subject.type === "PullRequest" && open) {
       let reason: string | null;
       try {
@@ -148,6 +145,9 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
         reason = `couldn't inspect checks: ${error instanceof Error ? error.message : String(error)}`;
       }
       if (reason) return { ...base, outcome: "kept", reason };
+    }
+    if (options.closedOnly && open && (n.subject.type === "PullRequest" || n.subject.type === "Issue")) {
+      return { ...base, outcome: "kept", reason: "still open" };
     }
     if (options.dryRun) return { ...base, outcome: "would-done" };
     try {
