@@ -188,6 +188,22 @@ describe("checksReason (README --keep-failed examples)", () => {
     }
   });
 
+  test("each failed run is judged on its own: a failure after the pass still keeps the thread", () => {
+    const newestFailure = run(gate, "completed", "failure", 60, 7200, 5);
+    assert.equal(checksReason([], [failure, newerPass, newestFailure], workflowRuns), `checks failed: ${gate}`);
+  });
+
+  test("a failure with a newer pass, and the job still running in a third run, reports pending", () => {
+    const running = run(gate, "in_progress", null, 60, 7200, 5);
+    assert.equal(checksReason([], [failure, newerPass, running], workflowRuns), `checks pending: ${gate}`);
+  });
+
+  test("an older run with cancelled jobs and a failed gate, replaced by a green run, doesn't keep the thread", () => {
+    const older = [run("build", "completed", "cancelled", 30), run(gate, "completed", "failure", 5, 40)];
+    const newer = [run("build", "completed", "success", 300, 3600, 2), run(gate, "completed", "success", 5, 3910, 2)];
+    assert.equal(checksReason([], [...older, ...newer], workflowRuns), null);
+  });
+
   test("a job that failed in the push run and passed later in a pull_request run keeps the thread (real payload)", () => {
     // An open Dependabot bump: one workflow on push and pull_request; the second
     // pull_request job started 7 s after the push job failed. Fields trimmed to those read.
