@@ -116,7 +116,11 @@ test("a failed mark-done is reported as failed", async () => {
 describe("--keep-failed", () => {
   const vercelFailed = pr("me/app", 5, "octocat", [{ event: "commented", actor: { login: "vercel[bot]" } }]);
   const botIssue = {
-    [`${API}/me/app/issues/7`]: { user: { login: "dependabot[bot]" }, html_url: "https://github.com/me/app/issues/7" },
+    [`${API}/me/app/issues/7`]: {
+      user: { login: "dependabot[bot]" },
+      html_url: "https://github.com/me/app/issues/7",
+      state: "open",
+    },
     [`${API}/me/app/issues/7/timeline`]: [],
   };
   const inbox = [
