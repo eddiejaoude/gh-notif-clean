@@ -26,7 +26,7 @@ export interface CleanOptions {
   dryRun: boolean;
   /** Keep open PRs whose head commit has failed or unfinished checks. */
   keepFailed: boolean;
-  /** Lowercased notification reasons whose threads are kept without being fetched. */
+  /** Lowercased notification reasons whose threads are kept until their subject is closed or merged. */
   keepReasons: ReadonlySet<string>;
   /** Keep open PRs and issues, so only closed or merged ones are marked done. */
   closedOnly: boolean;
