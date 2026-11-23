@@ -49,7 +49,7 @@ describe("checksReason (README --keep-failed examples)", () => {
       [{ context: "ci/legacy", state: "error" }],
       [run("test", "completed", "failure"), run("e2e", "completed", "timed_out"), run("gate", "completed", "action_required")],
     );
-    assert.equal(reason, "checks failed: ci/legacy, e2e, gate, test");
+    assert.equal(reason, "checks failed: ci/legacy, e2e, gate and 1 more");
   });
 
   test("unfinished checks keep the thread", () => {

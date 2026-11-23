@@ -109,8 +109,15 @@ export function checksReason(statuses: readonly CommitStatus[], checkRuns: reado
     else if (run.conclusion === "success") passed.add(run.name);
   }
   for (const name of passed) cancelled.delete(name);
-  if (failed.size > 0) return `checks failed: ${[...failed].sort().join(", ")}`;
-  if (pending.size > 0) return `checks pending: ${[...pending].sort().join(", ")}`;
-  if (cancelled.size > 0) return `checks cancelled: ${[...cancelled].sort().join(", ")}`;
+  if (failed.size > 0) return `checks failed: ${names(failed)}`;
+  if (pending.size > 0) return `checks pending: ${names(pending)}`;
+  if (cancelled.size > 0) return `checks cancelled: ${names(cancelled)}`;
   return null;
+}
+
+/** The first three names, sorted, then how many more: head commits can carry over 100 checks. */
+function names(set: ReadonlySet<string>): string {
+  const sorted = [...set].sort();
+  if (sorted.length <= 3) return sorted.join(", ");
+  return `${sorted.slice(0, 3).join(", ")} and ${sorted.length - 3} more`;
 }
