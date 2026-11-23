@@ -69,7 +69,7 @@ Each notification is a thread about one PR, issue, release, commit or discussion
 
 Being mentioned in or subscribed to a thread doesn't count as taking part.
 
-For discussions, it collects the author and everyone who commented, replies to comments included. That costs one API request per 100 comments on top of fetching the discussion. Other discussion activity, such as labelling it or marking an answer, isn't checked. For releases and commits, only the author is checked.
+For discussions, it collects the author and everyone who commented, replies to comments included. That adds one API request per discussion (more past 100 comments). Other discussion activity, such as labelling it or marking an answer, isn't checked. For releases and commits, only the author is checked.
 
 It then checks the whole group:
 
