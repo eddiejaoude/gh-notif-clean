@@ -23,8 +23,10 @@ function fakeApi(notifications: Notification[], responses: Record<string, unknow
     async get<T>(path: string) {
       return lookup(path) as T;
     },
-    async getAll<T>(path: string) {
-      return (path.startsWith("notifications") ? notifications : lookup(path)) as T[];
+    async getAll<T>(path: string, key?: string) {
+      if (path.startsWith("notifications")) return notifications as T[];
+      const body = lookup(path) as Record<string, unknown>;
+      return (key ? body[key] : body) as T[];
     },
     async markDone(id: string) {
       if (failDone.includes(id)) throw new Error("500 server error");
@@ -45,12 +47,12 @@ function pr(repo: string, n: number, author: string, timeline: unknown[], state 
   };
 }
 
-/** Responses for the combined status and check runs of `sha`, one page each. */
+/** Responses for the combined status and check runs of `sha`. */
 function checks(repo: string, sha: string, statuses: unknown[], checkRuns: unknown[]) {
   const commit = `${API}/${repo}/commits/${sha}`;
   return {
-    [`${commit}/status?per_page=100&page=1`]: { total_count: statuses.length, statuses },
-    [`${commit}/check-runs?per_page=100&page=1`]: { total_count: checkRuns.length, check_runs: checkRuns },
+    [`${commit}/status`]: { total_count: statuses.length, statuses },
+    [`${commit}/check-runs`]: { total_count: checkRuns.length, check_runs: checkRuns },
   };
 }
 
@@ -180,21 +182,5 @@ describe("--keep-failed", () => {
     assert.equal(result?.outcome, "done");
     assert.deepEqual(marked, ["6"]);
     assert.ok(!requested.some((p) => p.includes("/commits/")));
-  });
-
-  test("reads every page of check runs", async () => {
-    const commit = `${API}/me/app/commits/sha1`;
-    const passed = Array.from({ length: 100 }, (_, i) => ({ name: `job${i}`, status: "completed", conclusion: "success" }));
-    const { api } = fakeApi([inbox[0]!], {
-      ...botOnly,
-      [`${commit}/status?per_page=100&page=1`]: { total_count: 0, statuses: [] },
-      [`${commit}/check-runs?per_page=100&page=1`]: { total_count: 101, check_runs: passed },
-      [`${commit}/check-runs?per_page=100&page=2`]: {
-        total_count: 101,
-        check_runs: [{ name: "deploy", status: "completed", conclusion: "failure" }],
-      },
-    });
-    const [result] = await clean(api, options({ keepFailed: true }));
-    assert.equal(result?.reason, "checks failed: deploy");
   });
 });

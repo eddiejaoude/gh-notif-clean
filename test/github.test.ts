@@ -30,6 +30,16 @@ test("getAll follows Link pages and retries server errors", async () => {
   ]);
 });
 
+test("getAll unwraps keyed lists on every page", async () => {
+  const pages: Response[] = [
+    json({ total_count: 3, check_runs: [1, 2] }, { headers: { link: '<https://api.github.com/check-runs?page=2>; rel="next"' } }),
+    json({ total_count: 3, check_runs: [3] }),
+  ];
+  const api = createApi({ token: "t", baseUrl: "https://api.github.com", fetch: async () => pages.shift()! });
+
+  assert.deepEqual(await api.getAll<number>("check-runs", "check_runs"), [1, 2, 3]);
+});
+
 test("client errors are not retried", async () => {
   let calls = 0;
   const api = createApi({

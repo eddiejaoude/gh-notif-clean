@@ -71,23 +71,12 @@ async function loadActivity(api: Api, url: string, type: string) {
   return { activity, htmlUrl: subject.html_url ?? null, headSha: subject.head?.sha ?? null, open: subject.state === "open" };
 }
 
-/** Every page of an endpoint that wraps its list in an object with `total_count`. */
-async function getWrapped<T>(api: Api, url: string, key: string): Promise<T[]> {
-  const items: T[] = [];
-  for (let page = 1; ; page++) {
-    const body = await api.get<{ total_count: number } & Record<string, unknown>>(`${url}?per_page=100&page=${page}`);
-    const batch = body[key] as T[];
-    items.push(...batch);
-    if (batch.length === 0 || items.length >= body.total_count) return items;
-  }
-}
-
 /** Why the PR at `prUrl` is kept for the checks on commit `sha`, or `null`. */
 async function loadChecksReason(api: Api, prUrl: string, sha: string): Promise<string | null> {
   const commit = `${prUrl.replace(/\/pulls\/\d+$/, "")}/commits/${sha}`;
   const [statuses, checkRuns] = await Promise.all([
-    getWrapped<CommitStatus>(api, `${commit}/status`, "statuses"),
-    getWrapped<CheckRun>(api, `${commit}/check-runs`, "check_runs"),
+    api.getAll<CommitStatus>(`${commit}/status`, "statuses"),
+    api.getAll<CheckRun>(`${commit}/check-runs`, "check_runs"),
   ]);
   return checksReason(statuses, checkRuns);
 }
