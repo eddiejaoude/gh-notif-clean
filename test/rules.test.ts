@@ -4,6 +4,7 @@ import {
   checksReason,
   DEFAULT_IGNORED,
   decide,
+  needsWorkflowRuns,
   NOTIFICATION_REASONS,
   parseReasons,
   participants,
@@ -65,8 +66,8 @@ describe("parseReasons (--keep-reason)", () => {
 });
 
 describe("checksReason (README --keep-failed examples)", () => {
-  /** A check run that started `start` seconds after 10:00 and, once completed, ran for `seconds`. */
-  const run = (name: string, status: string, conclusion: string | null = null, seconds = 60, start = 0) => {
+  /** A check run in check suite `suite` that started `start` seconds after 10:00 and, once completed, ran for `seconds`. */
+  const run = (name: string, status: string, conclusion: string | null = null, seconds = 60, start = 0, suite = 1) => {
     const startedAt = Date.parse("2026-11-23T10:00:00Z") + start * 1000;
     return {
       name,
@@ -74,98 +75,178 @@ describe("checksReason (README --keep-failed examples)", () => {
       conclusion,
       started_at: new Date(startedAt).toISOString(),
       completed_at: status === "completed" ? new Date(startedAt + seconds * 1000).toISOString() : null,
+      check_suite: { id: suite },
     };
   };
+  /** Suites 1, 2 and 5 are `pull_request` runs of workflow 10, suite 3 is its `push` run, suite 4 is another workflow's. */
+  const workflowRuns = [
+    { check_suite_id: 1, workflow_id: 10, event: "pull_request" },
+    { check_suite_id: 2, workflow_id: 10, event: "pull_request" },
+    { check_suite_id: 3, workflow_id: 10, event: "push" },
+    { check_suite_id: 4, workflow_id: 20, event: "pull_request" },
+    { check_suite_id: 5, workflow_id: 10, event: "pull_request" },
+  ];
   const gate = "All required checks pass";
+  const failure = run(gate, "completed", "failure");
+  /** The gate passing in the newer `pull_request` run, an hour after `failure`. */
+  const newerPass = run(gate, "completed", "success", 60, 3600, 2);
 
   test("a failed Vercel deploy keeps the thread", () => {
-    assert.equal(checksReason([{ context: "Vercel", state: "failure" }], []), "checks failed: Vercel");
+    assert.equal(checksReason([{ context: "Vercel", state: "failure" }], [], workflowRuns), "checks failed: Vercel");
   });
 
   test("errored statuses and failed, timed out or blocked check runs count as failed", () => {
     const reason = checksReason(
       [{ context: "ci/legacy", state: "error" }],
       [run("test", "completed", "failure"), run("e2e", "completed", "timed_out"), run("gate", "completed", "action_required")],
+      workflowRuns,
     );
     assert.equal(reason, "checks failed: ci/legacy, e2e, gate and 1 more");
   });
 
   test("unfinished checks keep the thread", () => {
     assert.equal(
-      checksReason([{ context: "Vercel", state: "pending" }], [run("build", "in_progress"), run("lint", "queued")]),
+      checksReason([{ context: "Vercel", state: "pending" }], [run("build", "in_progress"), run("lint", "queued")], workflowRuns),
       "checks pending: Vercel, build, lint",
     );
   });
 
   test("failed checks are reported over unfinished ones", () => {
-    assert.equal(checksReason([{ context: "Vercel", state: "pending" }], [run("test", "completed", "failure")]), "checks failed: test");
+    assert.equal(
+      checksReason([{ context: "Vercel", state: "pending" }], [run("test", "completed", "failure")], workflowRuns),
+      "checks failed: test",
+    );
   });
 
-  test("a failed run that a same-named run started after it completed passed doesn't keep the thread", () => {
+  test("a failed run whose job passed in a newer run of the same workflow for the same event doesn't keep the thread", () => {
     for (const conclusion of ["failure", "timed_out", "action_required"]) {
-      const reRun = run(gate, "completed", "success", 60, 86_400);
-      assert.equal(checksReason([], [run(gate, "completed", conclusion), reRun]), null, conclusion);
-      assert.equal(checksReason([], [reRun, run(gate, "completed", conclusion)]), null, `${conclusion}, listed after`);
+      const failed = run(gate, "completed", conclusion);
+      assert.equal(checksReason([], [failed, newerPass], workflowRuns), null, conclusion);
+      assert.equal(checksReason([], [newerPass, failed], workflowRuns), null, `${conclusion}, listed after`);
     }
   });
 
-  test("a failed run whose same-named pass overlapped it or came first keeps the thread", () => {
-    // Same job in parallel push and pull_request suites; one starting the second the failure ended; an earlier pass.
+  test("a failed run whose job passed later in the workflow's run for another event keeps the thread", () => {
+    const pushFailure = run(gate, "completed", "failure", 60, 0, 3);
+    const pushPass = run(gate, "completed", "success", 60, 3600, 3);
+    assert.equal(checksReason([], [pushFailure, newerPass], workflowRuns), `checks failed: ${gate}`, "push failed");
+    assert.equal(checksReason([], [failure, pushPass], workflowRuns), `checks failed: ${gate}`, "pull_request failed");
+  });
+
+  test("a failed run whose namesake passed later in another workflow or in the same run keeps the thread", () => {
+    for (const suite of [4, 1]) {
+      const pass = run(gate, "completed", "success", 60, 3600, suite);
+      assert.equal(checksReason([], [failure, pass], workflowRuns), `checks failed: ${gate}`, `suite ${suite}`);
+    }
+  });
+
+  test("a failed run keeps the thread when the workflow runs don't show the pass replaced it", () => {
+    for (const [runs, workflows, label] of [
+      [[failure, newerPass], [], "no workflow runs"],
+      [[failure, { ...newerPass, check_suite: { id: 99 } }], workflowRuns, "pass's run not listed"],
+      [[{ ...failure, check_suite: { id: 99 } }, newerPass], workflowRuns, "failure's run not listed"],
+      [[failure, { ...newerPass, check_suite: null }], workflowRuns, "pass outside a check suite"],
+    ] as const) {
+      assert.equal(checksReason([], runs, workflows), `checks failed: ${gate}`, label);
+    }
+  });
+
+  test("a failed run whose newer run's pass overlapped it or came first keeps the thread", () => {
+    // Started while the failure ran; the second it ended; before it started.
     for (const start of [30, 60, -120]) {
       assert.equal(
-        checksReason([], [run(gate, "completed", "failure"), run(gate, "completed", "success", 60, start)]),
+        checksReason([], [failure, run(gate, "completed", "success", 60, start, 2)], workflowRuns),
         `checks failed: ${gate}`,
         `pass started at ${start}s`,
       );
     }
   });
 
-  test("a failed run whose later namesake failed, was skipped, neutral or cancelled keeps the thread", () => {
+  test("a failed run whose job in the newer run failed, was skipped, neutral or cancelled keeps the thread", () => {
     for (const conclusion of ["failure", "skipped", "neutral", "cancelled"]) {
       assert.equal(
-        checksReason([], [run(gate, "completed", "failure"), run(gate, "completed", conclusion, 60, 3600)]),
+        checksReason([], [failure, run(gate, "completed", conclusion, 60, 3600, 2)], workflowRuns),
         `checks failed: ${gate}`,
         conclusion,
       );
     }
   });
 
-  test("a later pass doesn't excuse a failed run of another name", () => {
+  test("a newer pass doesn't excuse a failed run of another name", () => {
     assert.equal(
-      checksReason([], [run("test", "completed", "failure"), run("lint", "completed", "success", 60, 3600)]),
+      checksReason([], [run("test", "completed", "failure"), run("lint", "completed", "success", 60, 3600, 2)], workflowRuns),
       "checks failed: test",
     );
   });
 
-  test("a failed run or a later pass with a missing time keeps the thread", () => {
-    const failure = run(gate, "completed", "failure");
-    const reRun = run(gate, "completed", "success", 60, 3600);
+  test("a failed run or a newer pass with a missing time keeps the thread", () => {
     for (const runs of [
-      [{ ...failure, completed_at: null }, reRun],
-      [failure, { ...reRun, started_at: null }],
+      [{ ...failure, completed_at: null }, newerPass],
+      [failure, { ...newerPass, started_at: null }],
     ]) {
-      assert.equal(checksReason([], runs), `checks failed: ${gate}`);
+      assert.equal(checksReason([], runs, workflowRuns), `checks failed: ${gate}`);
     }
   });
 
+  test("a job that failed in the push run and passed later in a pull_request run keeps the thread (real payload)", () => {
+    // An open Dependabot bump: one workflow on push and pull_request; the second
+    // pull_request job started 7 s after the push job failed. Fields trimmed to those read.
+    const runs = [
+      { name: "commitlint check", status: "completed", conclusion: "success", started_at: "2026-11-23T17:35:03Z", completed_at: "2026-11-23T17:36:08Z", check_suite: { id: 122392093118 } },
+      { name: "commitlint check", status: "completed", conclusion: "success", started_at: "2026-11-23T17:34:45Z", completed_at: "2026-11-23T17:35:51Z", check_suite: { id: 122392092245 } },
+      { name: "commitlint check", status: "completed", conclusion: "failure", started_at: "2026-11-23T17:34:02Z", completed_at: "2026-11-23T17:34:56Z", check_suite: { id: 122392057324 } },
+    ];
+    const workflows = [
+      { workflow_id: 428028452, event: "pull_request", check_suite_id: 122392092245 },
+      { workflow_id: 428028452, event: "pull_request", check_suite_id: 122392093118 },
+      { workflow_id: 428028452, event: "push", check_suite_id: 122392057324 },
+    ];
+    assert.equal(checksReason([], runs, workflows), "checks failed: commitlint check");
+  });
+
   test("a run cancelled after it started keeps the thread, as a timed-out Actions job reports cancelled", () => {
-    assert.equal(checksReason([], [run("deploy", "completed", "cancelled", 1826)]), "checks cancelled: deploy");
+    assert.equal(checksReason([], [run("deploy", "completed", "cancelled", 1826)], workflowRuns), "checks cancelled: deploy");
   });
 
   test("a run cancelled before it started doesn't keep the thread", () => {
-    assert.equal(checksReason([], [run("cargo test (${{ matrix.platform }})", "completed", "cancelled", 0)]), null);
+    assert.equal(checksReason([], [run("cargo test (${{ matrix.platform }})", "completed", "cancelled", 0)], workflowRuns), null);
   });
 
   test("a cancelled run whose namesake passed, was skipped or was neutral doesn't keep the thread", () => {
     for (const conclusion of ["success", "skipped", "neutral"]) {
-      assert.equal(checksReason([], [run("e2e", "completed", "cancelled"), run("e2e", "completed", conclusion)]), null, conclusion);
+      assert.equal(
+        checksReason([], [run("e2e", "completed", "cancelled"), run("e2e", "completed", conclusion)], workflowRuns),
+        null,
+        conclusion,
+      );
     }
   });
 
   test("passed, neutral and skipped checks, or none, don't keep the thread", () => {
     const done = [run("a", "completed", "success"), run("b", "completed", "neutral"), run("c", "completed", "skipped")];
-    assert.equal(checksReason([{ context: "Vercel", state: "success" }], done), null);
-    assert.equal(checksReason([], []), null);
+    assert.equal(checksReason([{ context: "Vercel", state: "success" }], done, workflowRuns), null);
+    assert.equal(checksReason([], [], []), null);
+  });
+});
+
+describe("needsWorkflowRuns", () => {
+  const at = (conclusion: string, start: number, name = "test") => ({
+    name,
+    status: "completed",
+    conclusion,
+    started_at: new Date(Date.parse("2026-11-23T10:00:00Z") + start * 1000).toISOString(),
+    completed_at: new Date(Date.parse("2026-11-23T10:00:00Z") + (start + 60) * 1000).toISOString(),
+    check_suite: { id: 1 },
+  });
+
+  test("only a failed run with a same-named pass that started after it completed needs them", () => {
+    assert.equal(needsWorkflowRuns([at("failure", 0), at("success", 3600)]), true);
+    assert.equal(needsWorkflowRuns([at("timed_out", 0), at("success", 3600)]), true);
+    assert.equal(needsWorkflowRuns([at("failure", 0), at("success", 30)]), false, "overlapping pass");
+    assert.equal(needsWorkflowRuns([at("failure", 0), at("skipped", 3600)]), false, "later skip");
+    assert.equal(needsWorkflowRuns([at("failure", 0), at("success", 3600, "lint")]), false, "other name");
+    assert.equal(needsWorkflowRuns([at("cancelled", 0), at("success", 3600)]), false, "cancelled, not failed");
+    assert.equal(needsWorkflowRuns([at("success", 0), at("success", 3600)]), false, "nothing failed");
   });
 });
 
