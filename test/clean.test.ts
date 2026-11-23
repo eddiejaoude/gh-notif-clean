@@ -113,42 +113,58 @@ test("a failed mark-done is reported as failed", async () => {
 
 describe("--keep-failed", () => {
   const vercelFailed = pr("me/app", 5, "octocat", [{ event: "commented", actor: { login: "vercel[bot]" } }]);
-  const prs = [
+  const botIssue = {
+    [`${API}/me/app/issues/7`]: { user: { login: "dependabot[bot]" }, html_url: "https://github.com/me/app/issues/7" },
+    [`${API}/me/app/issues/7/timeline`]: [],
+  };
+  const inbox = [
     thread("1", "me/app", "PullRequest", `${API}/me/app/pulls/1`),
     thread("2", "me/app", "PullRequest", `${API}/me/app/pulls/2`),
     thread("5", "me/app", "PullRequest", `${API}/me/app/pulls/5`),
+    thread("7", "me/app", "Issue", `${API}/me/app/issues/7`),
   ];
   const responses = {
     ...botOnly,
     ...reviewRequested,
     ...vercelFailed,
+    ...botIssue,
     ...checks("me/app", "sha1", [{ context: "Vercel", state: "success" }], [
       { name: "test", status: "completed", conclusion: "success" },
     ]),
     ...checks("me/app", "sha5", [{ context: "Vercel", state: "failure" }], []),
   };
 
-  test("keeps bot-only PRs with failing checks and marks passing ones done", async () => {
-    const { api, marked, requested } = fakeApi(prs, responses);
+  test("keeps bot-only PRs with failing checks and marks passing PRs and other threads done", async () => {
+    const { api, marked, requested } = fakeApi(inbox, responses);
     const results = await clean(api, options({ keepFailed: true }));
 
-    assert.deepEqual(marked, ["1"]);
+    assert.deepEqual(marked.sort(), ["1", "7"]);
     assert.deepEqual(
       results.map((r) => [r.id, r.outcome, r.reason]),
-      [["1", "done", undefined], ["2", "kept", "maintainer"], ["5", "kept", "checks failed: Vercel"]],
+      [["1", "done", undefined], ["2", "kept", "maintainer"], ["5", "kept", "checks failed: Vercel"], ["7", "done", undefined]],
     );
     assert.ok(!requested.some((p) => p.includes("/commits/sha2")), "checks fetched for a PR kept by its participants");
   });
 
+  test("a dry run keeps the same PRs", async () => {
+    const { api, marked } = fakeApi(inbox, responses);
+    const results = await clean(api, options({ keepFailed: true, dryRun: true }));
+    assert.deepEqual(marked, []);
+    assert.deepEqual(
+      results.map((r) => [r.id, r.outcome]),
+      [["1", "would-done"], ["2", "kept"], ["5", "kept"], ["7", "would-done"]],
+    );
+  });
+
   test("without the flag, no checks are fetched", async () => {
-    const { api, marked, requested } = fakeApi(prs, responses);
+    const { api, marked, requested } = fakeApi(inbox, responses);
     await clean(api, options());
-    assert.deepEqual(marked, ["1", "5"]);
+    assert.deepEqual(marked.sort(), ["1", "5", "7"]);
     assert.ok(!requested.some((p) => p.includes("/commits/")));
   });
 
   test("keeps the PR when its checks can't be fetched", async () => {
-    const { api, marked } = fakeApi([prs[0]!], botOnly);
+    const { api, marked } = fakeApi([inbox[0]!], botOnly);
     const [result] = await clean(api, options({ keepFailed: true }));
     assert.deepEqual(marked, []);
     assert.match(result?.reason ?? "", /^couldn't inspect checks: 404/);
@@ -169,7 +185,7 @@ describe("--keep-failed", () => {
   test("reads every page of check runs", async () => {
     const commit = `${API}/me/app/commits/sha1`;
     const passed = Array.from({ length: 100 }, (_, i) => ({ name: `job${i}`, status: "completed", conclusion: "success" }));
-    const { api } = fakeApi([prs[0]!], {
+    const { api } = fakeApi([inbox[0]!], {
       ...botOnly,
       [`${commit}/status?per_page=100&page=1`]: { total_count: 0, statuses: [] },
       [`${commit}/check-runs?per_page=100&page=1`]: { total_count: 101, check_runs: passed },
