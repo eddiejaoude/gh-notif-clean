@@ -18,7 +18,7 @@ export interface TimelineEvent {
 
 /** Everything fetched for one notification thread. */
 export interface ThreadActivity {
-  /** Author of the PR, issue, release or commit the thread is about. */
+  /** Author of the PR, issue, release, commit or discussion the thread is about. */
   author: string | null;
   timeline: readonly TimelineEvent[];
   reviewComments: readonly { user: Account | null }[];
