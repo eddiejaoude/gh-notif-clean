@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { describe, test } from "node:test";
 import { clean, type CleanOptions, type Notification } from "../src/clean.ts";
 import type { Api } from "../src/github.ts";
 import { DEFAULT_IGNORED } from "../src/rules.ts";
@@ -10,10 +10,12 @@ function thread(id: string, repo: string, type: string, url: string | null): Not
   return { id, unread: true, reason: "author", repository: { full_name: repo }, subject: { title: `t${id}`, type, url } };
 }
 
-/** Fake API serving fixed responses; records every thread marked done. */
+/** Fake API serving fixed responses; records every path fetched and thread marked done. */
 function fakeApi(notifications: Notification[], responses: Record<string, unknown>, failDone: string[] = []) {
   const marked: string[] = [];
+  const requested: string[] = [];
   const lookup = (path: string) => {
+    requested.push(path);
     if (!(path in responses)) throw new Error(`404 ${path}`);
     return responses[path];
   };
@@ -29,17 +31,26 @@ function fakeApi(notifications: Notification[], responses: Record<string, unknow
       marked.push(id);
     },
   };
-  return { api, marked };
+  return { api, marked, requested };
 }
 
 /** Responses for a PR whose timeline holds the given events. */
 function pr(repo: string, n: number, author: string, timeline: unknown[]) {
   const url = `${API}/${repo}/pulls/${n}`;
   return {
-    [url]: { user: { login: author }, html_url: `https://github.com/${repo}/pull/${n}` },
+    [url]: { user: { login: author }, html_url: `https://github.com/${repo}/pull/${n}`, head: { sha: `sha${n}` } },
     [`${API}/${repo}/issues/${n}/timeline`]: timeline,
     [`${url}/comments`]: [],
     [`${url}/commits`]: [{ author: { login: author } }],
+  };
+}
+
+/** Responses for the combined status and check runs of `sha`, one page each. */
+function checks(repo: string, sha: string, statuses: unknown[], checkRuns: unknown[]) {
+  const commit = `${API}/${repo}/commits/${sha}`;
+  return {
+    [`${commit}/status?per_page=100&page=1`]: { total_count: statuses.length, statuses },
+    [`${commit}/check-runs?per_page=100&page=1`]: { total_count: checkRuns.length, check_runs: checkRuns },
   };
 }
 
@@ -49,6 +60,7 @@ const options = (overrides: Partial<CleanOptions> = {}): CleanOptions => ({
   repos: [],
   unreadOnly: false,
   dryRun: false,
+  keepFailed: false,
   ...overrides,
 });
 
@@ -97,4 +109,64 @@ test("a failed mark-done is reported as failed", async () => {
   const [result] = await clean(api, options());
   assert.equal(result?.outcome, "failed");
   assert.equal(result?.reason, "500 server error");
+});
+
+describe("--keep-failed", () => {
+  const vercelFailed = pr("me/app", 5, "octocat", [{ event: "commented", actor: { login: "vercel[bot]" } }]);
+  const prs = [
+    thread("1", "me/app", "PullRequest", `${API}/me/app/pulls/1`),
+    thread("2", "me/app", "PullRequest", `${API}/me/app/pulls/2`),
+    thread("5", "me/app", "PullRequest", `${API}/me/app/pulls/5`),
+  ];
+  const responses = {
+    ...botOnly,
+    ...reviewRequested,
+    ...vercelFailed,
+    ...checks("me/app", "sha1", [{ context: "Vercel", state: "success" }], [
+      { name: "test", status: "completed", conclusion: "success" },
+    ]),
+    ...checks("me/app", "sha5", [{ context: "Vercel", state: "failure" }], []),
+  };
+
+  test("keeps bot-only PRs with failing checks and marks passing ones done", async () => {
+    const { api, marked, requested } = fakeApi(prs, responses);
+    const results = await clean(api, options({ keepFailed: true }));
+
+    assert.deepEqual(marked, ["1"]);
+    assert.deepEqual(
+      results.map((r) => [r.id, r.outcome, r.reason]),
+      [["1", "done", undefined], ["2", "kept", "maintainer"], ["5", "kept", "checks failed: Vercel"]],
+    );
+    assert.ok(!requested.some((p) => p.includes("/commits/sha2")), "checks fetched for a PR kept by its participants");
+  });
+
+  test("without the flag, no checks are fetched", async () => {
+    const { api, marked, requested } = fakeApi(prs, responses);
+    await clean(api, options());
+    assert.deepEqual(marked, ["1", "5"]);
+    assert.ok(!requested.some((p) => p.includes("/commits/")));
+  });
+
+  test("keeps the PR when its checks can't be fetched", async () => {
+    const { api, marked } = fakeApi([prs[0]!], botOnly);
+    const [result] = await clean(api, options({ keepFailed: true }));
+    assert.deepEqual(marked, []);
+    assert.match(result?.reason ?? "", /^couldn't inspect checks: 404/);
+  });
+
+  test("reads every page of check runs", async () => {
+    const commit = `${API}/me/app/commits/sha1`;
+    const passed = Array.from({ length: 100 }, (_, i) => ({ name: `job${i}`, status: "completed", conclusion: "success" }));
+    const { api } = fakeApi([prs[0]!], {
+      ...botOnly,
+      [`${commit}/status?per_page=100&page=1`]: { total_count: 0, statuses: [] },
+      [`${commit}/check-runs?per_page=100&page=1`]: { total_count: 101, check_runs: passed },
+      [`${commit}/check-runs?per_page=100&page=2`]: {
+        total_count: 101,
+        check_runs: [{ name: "deploy", status: "completed", conclusion: "failure" }],
+      },
+    });
+    const [result] = await clean(api, options({ keepFailed: true }));
+    assert.equal(result?.reason, "checks failed: deploy");
+  });
 });

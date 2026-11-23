@@ -1,5 +1,13 @@
 import type { Api } from "./github.ts";
-import { decide, participants, type ThreadActivity, type TimelineEvent } from "./rules.ts";
+import {
+  checksReason,
+  decide,
+  participants,
+  type CheckRun,
+  type CommitStatus,
+  type ThreadActivity,
+  type TimelineEvent,
+} from "./rules.ts";
 
 export interface Notification {
   id: string;
@@ -16,6 +24,8 @@ export interface CleanOptions {
   repos: readonly string[];
   unreadOnly: boolean;
   dryRun: boolean;
+  /** Keep PRs whose head commit has failed or unfinished checks. */
+  keepFailed: boolean;
   concurrency?: number;
 }
 
@@ -37,6 +47,7 @@ interface Subject {
   html_url?: string;
   user?: { login: string } | null;
   author?: { login: string } | null;
+  head?: { sha: string };
 }
 
 async function loadActivity(api: Api, url: string, type: string) {
@@ -56,7 +67,28 @@ async function loadActivity(api: Api, url: string, type: string) {
     ]);
     Object.assign(activity, { timeline, reviewComments, commits });
   }
-  return { activity, htmlUrl: subject.html_url ?? null };
+  return { activity, htmlUrl: subject.html_url ?? null, headSha: subject.head?.sha ?? null };
+}
+
+/** Every page of an endpoint that wraps its list in an object with `total_count`. */
+async function getWrapped<T>(api: Api, url: string, key: string): Promise<T[]> {
+  const items: T[] = [];
+  for (let page = 1; ; page++) {
+    const body = await api.get<{ total_count: number } & Record<string, unknown>>(`${url}?per_page=100&page=${page}`);
+    const batch = body[key] as T[];
+    items.push(...batch);
+    if (batch.length === 0 || items.length >= body.total_count) return items;
+  }
+}
+
+/** Why the PR at `prUrl` is kept for the checks on commit `sha`, or `null`. */
+async function loadChecksReason(api: Api, prUrl: string, sha: string): Promise<string | null> {
+  const commit = `${prUrl.replace(/\/pulls\/\d+$/, "")}/commits/${sha}`;
+  const [statuses, checkRuns] = await Promise.all([
+    getWrapped<CommitStatus>(api, `${commit}/status`, "statuses"),
+    getWrapped<CheckRun>(api, `${commit}/check-runs`, "check_runs"),
+  ]);
+  return checksReason(statuses, checkRuns);
 }
 
 function inRepos(fullName: string, repos: readonly string[]): boolean {
@@ -97,10 +129,12 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
     if (!n.subject.url) return { ...base, outcome: "kept", reason: `${n.subject.type} threads can't be inspected` };
 
     let logins: Set<string>;
+    let headSha: string | null;
     try {
-      const { activity, htmlUrl } = await loadActivity(api, n.subject.url, n.subject.type);
-      base.url = htmlUrl;
-      logins = participants(activity);
+      const loaded = await loadActivity(api, n.subject.url, n.subject.type);
+      base.url = loaded.htmlUrl;
+      headSha = loaded.headSha;
+      logins = participants(loaded.activity);
       base.participants = [...logins].sort();
     } catch (error) {
       return { ...base, outcome: "kept", reason: `couldn't inspect: ${error instanceof Error ? error.message : String(error)}` };
@@ -108,6 +142,16 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
 
     const decision = decide(logins, options.me, options.ignored);
     if (!decision.done) return { ...base, outcome: "kept", reason: decision.reason };
+    if (options.keepFailed && n.subject.type === "PullRequest") {
+      let reason: string | null;
+      try {
+        if (!headSha) throw new Error("no head commit");
+        reason = await loadChecksReason(api, n.subject.url, headSha);
+      } catch (error) {
+        reason = `couldn't inspect checks: ${error instanceof Error ? error.message : String(error)}`;
+      }
+      if (reason) return { ...base, outcome: "kept", reason };
+    }
     if (options.dryRun) return { ...base, outcome: "would-done" };
     try {
       await api.markDone(n.id);

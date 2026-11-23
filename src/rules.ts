@@ -68,3 +68,41 @@ export function decide(
   if (![...logins].some(isIgnored)) return { done: false, reason: "no ignored bot took part" };
   return { done: true };
 }
+
+/** Latest status per context on a commit, from the combined status endpoint. */
+export interface CommitStatus {
+  context: string;
+  state: string;
+}
+
+/** Latest check run per name on a commit. */
+export interface CheckRun {
+  name: string;
+  status: string;
+  conclusion: string | null;
+}
+
+const FAILED_STATES: Record<string, true> = { failure: true, error: true };
+const FAILED_CONCLUSIONS: Record<string, true> = { failure: true, timed_out: true, action_required: true };
+
+/**
+ * Why a PR's head commit keeps its thread: checks that failed, or else checks
+ * that haven't finished. Unfinished checks keep it because a status changing
+ * doesn't notify, so a thread marked done now wouldn't come back if one fails.
+ * `null` when every check passed or there are none.
+ */
+export function checksReason(statuses: readonly CommitStatus[], checkRuns: readonly CheckRun[]): string | null {
+  const failed = new Set<string>();
+  const pending = new Set<string>();
+  for (const status of statuses) {
+    if (FAILED_STATES[status.state]) failed.add(status.context);
+    else if (status.state === "pending") pending.add(status.context);
+  }
+  for (const run of checkRuns) {
+    if (run.status !== "completed") pending.add(run.name);
+    else if (run.conclusion && FAILED_CONCLUSIONS[run.conclusion]) failed.add(run.name);
+  }
+  if (failed.size > 0) return `checks failed: ${[...failed].sort().join(", ")}`;
+  if (pending.size > 0) return `checks pending: ${[...pending].sort().join(", ")}`;
+  return null;
+}

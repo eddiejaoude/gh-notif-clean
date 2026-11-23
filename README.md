@@ -28,6 +28,7 @@ gh notif-clean                               # mark matching threads done
 gh notif-clean --ignore 'cla-assistant[bot]' # also ignore another bot for this run
 gh notif-clean -R eddiejaoude/StackDash      # only one repository
 gh notif-clean -R paypal                     # only repositories owned by paypal
+gh notif-clean --keep-failed                 # but keep PRs whose deploy or CI failed or is still running
 gh notif-clean --json -n | jq '.threads[] | select(.outcome == "kept")'
 ```
 
@@ -39,6 +40,7 @@ gh notif-clean --json -n | jq '.threads[] | select(.outcome == "kept")'
 | `--no-default-bots` | Ignore only the accounts given with `--ignore` |
 | `-R`, `--repo REPO` | Only process `OWNER/NAME`, or every repository of `OWNER` (repeatable) |
 | `--unread-only` | Skip threads you've already read |
+| `--keep-failed` | Keep PRs whose latest commit has failed or unfinished checks, such as a failed Vercel deploy |
 | `--json` | Print the summary and every thread's outcome as JSON |
 | `-h`, `--help` | Show help |
 
@@ -70,11 +72,15 @@ It then checks the whole group:
 
 The thread is marked done only if both checks pass. The check covers the thread's whole history, not just its latest activity. Once a real person takes part, that thread is never marked done, even if bots comment many times afterwards.
 
+With `--keep-failed`, a PR that passes both checks is still kept if a check on its latest commit failed or hasn't finished. That covers commit statuses that are `failure` or `error` (how Vercel reports a failed deploy) and check runs that ended `failure`, `timed_out` or `action_required`. Unfinished checks keep the thread too: a check changing later doesn't send a notification, so a thread marked done before its deploy fails wouldn't come back. Passed, neutral, skipped and cancelled checks don't keep it. The flag adds two API requests (more past 100 checks) for each PR that would otherwise be marked done.
+
 | Example thread | Who took part | Anyone else? | Ignored bot present? | Result |
 |---|---|---|---|---|
 | Your PR with a Vercel preview comment | you, `vercel[bot]` | no | yes | **Done** |
 | Dependabot version bump | `dependabot[bot]`, you | no | yes | **Done** |
 | Your PR with code scanning alerts | you, `vercel[bot]`, `github-advanced-security[bot]` | no | yes | **Done** |
+| Your PR whose Vercel deploy failed, run with `--keep-failed` | you, `vercel[bot]` | no | yes | **Kept**: checks failed |
+| Dependabot bump whose CI is still running, run with `--keep-failed` | `dependabot[bot]`, you | no | yes | **Kept**: checks pending, so the next run checks it again |
 | Dependabot bump that the CLA bot commented on | `dependabot[bot]`, `vercel[bot]`, `cla-assistant[bot]`, you | `cla-assistant[bot]` | yes | **Kept**: that bot isn't ignored (use `--ignore 'cla-assistant[bot]'`) |
 | Your issue that a contributor commented on | you, a contributor | the contributor | no | **Kept**: a real person |
 | A contributor's PR with a Vercel preview comment | a contributor, `vercel[bot]` | the contributor | yes | **Kept**: a real person, even though Vercel commented |
@@ -94,8 +100,8 @@ npm test           # node:test, no network access
 | Path | Contents |
 |---|---|
 | `gh-notif-clean` | Entry point `gh` runs; starts `src/cli.ts` with Node |
-| `src/rules.ts` | Pure rules: who took part (`participants`) and done or kept (`decide`) |
-| `src/clean.ts` | Lists notifications, loads each thread's activity, applies the rules, marks threads done |
+| `src/rules.ts` | Pure rules: who took part (`participants`), done or kept (`decide`), and which checks keep a PR (`checksReason`) |
+| `src/clean.ts` | Lists notifications, loads each thread's activity and, with `--keep-failed`, its PR checks, applies the rules, marks threads done |
 | `src/github.ts` | REST client: `gh auth token`, pagination, retries on 429/5xx |
 | `src/cli.ts` | Flags and output |
 
