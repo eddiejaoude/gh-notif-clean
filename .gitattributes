@@ -1,0 +1,2 @@
+# Git Bash runs the scripts on Windows too, and fails on CRLF line endings.
+*.sh text eol=lf
