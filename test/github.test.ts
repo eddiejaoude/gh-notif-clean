@@ -149,7 +149,7 @@ test("GHE.com: requests on the tenant's API origin carry the token, its web host
   ]);
 });
 
-test("apiBaseUrl maps each kind of host to its REST API the way gh does", () => {
+test("apiBaseUrl maps each kind of host to its REST API base", () => {
   for (const [host, base] of [
     // github.com has an API host of its own.
     ["github.com", "https://api.github.com"],
@@ -157,11 +157,14 @@ test("apiBaseUrl maps each kind of host to its REST API the way gh does", () => 
     // GitHub Enterprise Cloud with data residency: a tenant's API is on api.SUBDOMAIN.ghe.com.
     ["octocorp.ghe.com", "https://api.octocorp.ghe.com"],
     ["OctoCorp.GHE.com", "https://api.octocorp.ghe.com"],
-    // GitHub Enterprise Server, and every other host gh treats as one.
+    // GitHub Enterprise Server, and any other host.
     ["ghe.example", "https://ghe.example/api/v3"],
     ["ghe.com", "https://ghe.com/api/v3"],
     ["notghe.com", "https://notghe.com/api/v3"],
     ["octocorp.ghe.com.example", "https://octocorp.ghe.com.example/api/v3"],
+    // gh uses https://api.HOST for a subdomain of github.com; here it gets the Enterprise Server form.
+    ["www.github.com", "https://www.github.com/api/v3"],
+    // gh maps it to the Enterprise Server form by a special case; here it falls through to that.
     ["garage.github.com", "https://garage.github.com/api/v3"],
   ] as const) {
     assert.equal(apiBaseUrl(host), base, host);
@@ -172,6 +175,7 @@ test("apiBaseUrl refuses a name with more than one label before .ghe.com, naming
   for (const [host, message] of [
     ["api.octocorp.ghe.com", "GH_HOST api.octocorp.ghe.com isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com; use octocorp.ghe.com"],
     ["A.B.ghe.com", "GH_HOST A.B.ghe.com isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com; use b.ghe.com"],
+    ["a.b.ghe.com", "GH_HOST a.b.ghe.com isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com; use b.ghe.com"],
     [".ghe.com", "GH_HOST .ghe.com isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com"],
   ] as const) {
     assert.throws(() => apiBaseUrl(host), { message }, host);

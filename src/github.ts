@@ -78,12 +78,16 @@ function isExecutableFile(file: string): boolean {
 }
 
 /**
- * REST API base URL for a host gh logs in to, as gh 2.102.0 maps it in
- * `internal/ghinstance/host.go` `RESTPrefix`: `https://api.github.com` for github.com,
- * `https://api.HOST` for a GitHub Enterprise Cloud tenant on GHE.com (`SUBDOMAIN.ghe.com`),
- * and `https://HOST/api/v3` for GitHub Enterprise Server and any other host. Host names
- * match in any case. gh's `github.localhost`, a plain-`http:` development host, is refused,
- * with its subdomains.
+ * REST API base URL for the host gh logs in to, in any case. For the three kinds of host people
+ * log in to, it's the URL gh 2.102.0 uses (`RESTPrefix` in cli/cli `internal/ghinstance/host.go`):
+ * `https://api.github.com` for github.com, `https://api.SUBDOMAIN.ghe.com` for a GitHub
+ * Enterprise Cloud tenant on GHE.com, and `https://HOST/api/v3` for GitHub Enterprise Server.
+ *
+ * Other names aren't mapped the way gh maps them. A subdomain of github.com gets the Enterprise
+ * Server form here, where gh uses `https://api.HOST`; `garage.github.com`, which gh maps to the
+ * Enterprise Server form by a special case, matches only as a result. A name with more than one
+ * label before `.ghe.com` is refused, and so are `github.localhost` and its subdomains, which gh
+ * reaches over plain http.
  */
 export function apiBaseUrl(host: string): string {
   const name = host.toLowerCase();
