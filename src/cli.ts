@@ -15,8 +15,9 @@ Flags:
   -R, --repo REPO           Only process OWNER/NAME or every repo of OWNER (repeatable)
       --unread-only         Skip threads you have already read
       --since DURATION      Only check threads updated in the last DURATION: a whole number
-                            followed by m, h, d or w, e.g. 7d. Older threads aren't checked,
-                            even if an earlier run left them in your inbox
+                            of minutes (m), hours (h), days (d) or weeks (w), e.g. 7d or 12h.
+                            Older threads aren't checked, even if an earlier run left them
+                            in your inbox
       --keep-failed         Keep open PRs whose latest commit has failed or unfinished checks
       --closed-only         Keep open PRs and issues; mark only closed or merged ones done
       --keep-reason REASON  Keep threads whose notification reason is REASON (repeatable), e.g.
