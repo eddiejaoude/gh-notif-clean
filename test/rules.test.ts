@@ -658,6 +658,14 @@ describe("needsWorkflowRuns", () => {
       "CodeQL analysis go",
       "prebuild (linux)",
       "npm prebuild",
+      "prepare",
+      "agent",
+      "CodeQL Analysis (rust)",
+      "Codex",
+      "Prebuild",
+      "Copilot-Pull-Request-Reviewer",
+      "GitHub-Advanced-Security",
+      "Update-pip-graph",
       "Analyze (actions)",
     ]) {
       assert.equal(needsWorkflowRuns([at("failure", 0, 1, name)]), false, name);
