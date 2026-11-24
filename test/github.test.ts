@@ -163,8 +163,6 @@ test("apiBaseUrl maps each kind of host to its REST API the way gh does", () => 
     ["notghe.com", "https://notghe.com/api/v3"],
     ["octocorp.ghe.com.example", "https://octocorp.ghe.com.example/api/v3"],
     ["garage.github.com", "https://garage.github.com/api/v3"],
-    // gh's plain-http: development host isn't supported; it gets the Enterprise Server form.
-    ["github.localhost", "https://github.localhost/api/v3"],
   ] as const) {
     assert.equal(apiBaseUrl(host), base, host);
   }
@@ -180,8 +178,15 @@ test("apiBaseUrl refuses a name with more than one label before .ghe.com, naming
   }
 });
 
+test("apiBaseUrl refuses github.localhost, which gh reaches over plain http", () => {
+  for (const host of ["github.localhost", "GitHub.LocalHost", "api.github.localhost"]) {
+    assert.throws(() => apiBaseUrl(host), { message: `GH_HOST ${host} isn't supported: gh reaches github.localhost over plain http` }, host);
+  }
+  assert.equal(apiBaseUrl("notgithub.localhost"), "https://notgithub.localhost/api/v3");
+});
+
 test("ghAuth refuses a host before it looks for gh", () => {
-  for (const host of ["api.octocorp.ghe.com"]) {
+  for (const host of ["api.octocorp.ghe.com", "github.localhost"]) {
     // Finds no gh, so nothing runs even if the host were checked too late.
     let looked = false;
     const isExecutable = () => {

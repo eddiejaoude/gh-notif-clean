@@ -82,12 +82,15 @@ function isExecutableFile(file: string): boolean {
  * `internal/ghinstance/host.go` `RESTPrefix`: `https://api.github.com` for github.com,
  * `https://api.HOST` for a GitHub Enterprise Cloud tenant on GHE.com (`SUBDOMAIN.ghe.com`),
  * and `https://HOST/api/v3` for GitHub Enterprise Server and any other host. Host names
- * match in any case. gh's `github.localhost`, a plain-`http:` development host, isn't
- * supported, so it gets the Enterprise Server form.
+ * match in any case. gh's `github.localhost`, a plain-`http:` development host, is refused,
+ * with its subdomains.
  */
 export function apiBaseUrl(host: string): string {
   const name = host.toLowerCase();
   if (name === "github.com") return "https://api.github.com";
+  if (name === "github.localhost" || name.endsWith(".github.localhost")) {
+    throw new Error(`GH_HOST ${host} isn't supported: gh reaches github.localhost over plain http`);
+  }
   if (name.endsWith(".ghe.com")) {
     // gh reads the token for a.b.ghe.com from its login to b.ghe.com, so a name with more than
     // one label before .ghe.com would send tenant b's token to another host.
