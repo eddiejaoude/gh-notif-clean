@@ -122,6 +122,10 @@ describe("checksReason (README --keep-failed examples)", () => {
     );
   });
 
+  test("unfinished checks are reported over cancelled ones", () => {
+    assert.equal(checksReason([], [timedOut, run("build", "in_progress")], workflowRuns), "checks pending: build");
+  });
+
   test("a failed run whose job passed in a newer run of the same workflow for the same event doesn't keep the thread", () => {
     for (const conclusion of ["failure", "timed_out", "action_required"]) {
       const failed = run(gate, "completed", conclusion);
