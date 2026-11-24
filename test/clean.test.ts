@@ -186,7 +186,9 @@ test("a thread kept on a failed request has its other requests cancelled before 
     },
   });
 
-  const results = await clean(api, options());
+  // One thread at a time, so PR 2 starts after PR 1's abort: an abort that reached past its own
+  // thread would cancel PR 2's requests too.
+  const results = await clean(api, options({ concurrency: 1 }));
 
   assert.deepEqual([...stalled], [], "requests still running when clean() returned");
   assert.deepEqual(
