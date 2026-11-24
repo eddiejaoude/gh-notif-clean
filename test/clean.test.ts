@@ -352,6 +352,49 @@ describe("--keep-failed", () => {
       });
     });
   }
+
+  describe("a failed run that the PR's check list leaves out", () => {
+    // Workflow 10's `workflow_dispatch` run (suite 1) failed `test`; its `pull_request` run (suite 2), which
+    // started first, passed it on PR 13 and skipped it on PR 14.
+    const dispatched = {
+      name: "test",
+      status: "completed",
+      conclusion: "failure",
+      started_at: "2026-11-23T10:00:00Z",
+      completed_at: "2026-11-23T10:30:00Z",
+      check_suite: { id: 1 },
+    };
+    const listed = (conclusion: string) => ({ ...dispatched, conclusion, started_at: "2026-11-23T09:59:00Z", completed_at: "2026-11-23T10:01:00Z", check_suite: { id: 2 } });
+    const runsPath = (sha: string) => `${API}/me/app/actions/runs?head_sha=${sha}`;
+    const inbox = [
+      thread("13", "me/app", "PullRequest", `${API}/me/app/pulls/13`),
+      thread("14", "me/app", "PullRequest", `${API}/me/app/pulls/14`),
+    ];
+    const responses = {
+      ...pr("me/app", 13, "dependabot[bot]", []),
+      ...pr("me/app", 14, "dependabot[bot]", []),
+      ...checks("me/app", "sha13", [], [dispatched, listed("success")]),
+      ...checks("me/app", "sha14", [], [dispatched, listed("skipped")]),
+    };
+
+    test("is excused by the list's earlier pass, and keeps the PR whose list skipped the job without listing its workflow runs", async () => {
+      const { api, marked, requested } = fakeApi(inbox, {
+        ...responses,
+        [runsPath("sha13")]: {
+          total_count: 2,
+          workflow_runs: [
+            { check_suite_id: 1, workflow_id: 10, event: "workflow_dispatch" },
+            { check_suite_id: 2, workflow_id: 10, event: "pull_request" },
+          ],
+        },
+      });
+      const results = await clean(api, options({ keepFailed: true }));
+      assert.deepEqual(marked, ["13"]);
+      assert.equal(results[1]?.reason, "checks failed: test");
+      assert.ok(requested.includes(runsPath("sha13")), "workflow runs not fetched for a pass that started first");
+      assert.ok(!requested.includes(runsPath("sha14")), "workflow runs fetched for a PR with no pass of the job");
+    });
+  });
 });
 
 describe("--keep-reason", () => {
