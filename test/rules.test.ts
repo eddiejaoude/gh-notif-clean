@@ -367,7 +367,8 @@ describe("checksReason (README --keep-failed examples)", () => {
   test("dispatched jobs that were cancelled or failed, then passed in the PR's own run of that workflow, don't keep the thread (real payload)", () => {
     // An open PR: a `workflow_dispatch` run on its branch had five jobs cancelled about 15 minutes in and its
     // summary job failed; the same jobs then passed in the PR's `pull_request` run of that workflow, the only
-    // one `gh pr checks` lists. Fields trimmed to those read.
+    // one `gh pr checks` lists. Fields trimmed to those read, and check runs to that workflow's two runs (12 of
+    // the commit's 39): the PR's other checks still keep it.
     const runs = [
       { name: "diagnostics table, all runs", status: "completed", conclusion: "success", started_at: "2026-11-24T01:39:21Z", completed_at: "2026-11-24T01:39:33Z", check_suite: { id: 122560583971 } },
       { name: "diagnostics table, all runs", status: "completed", conclusion: "failure", started_at: "2026-11-24T00:02:19Z", completed_at: "2026-11-24T00:02:34Z", check_suite: { id: 122560397435 } },
