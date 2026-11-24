@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -59,10 +62,14 @@ test("a usage error larger than a 64 KiB pipe arrives complete and exits 2", pos
   assert.match(stderr, /\nReasons for --keep-reason: [a-z_, ]+\n$/);
 });
 
-test("an error larger than a 64 KiB pipe arrives complete and exits 1", posixPipes, () => {
-  // gh has no login for the host, so the run fails before reaching GitHub, naming the host twice.
+test("an error larger than a 64 KiB pipe arrives complete and exits 1", posixPipes, (t) => {
+  // A gh with no login for any host, found before the real one, so the developer's logins and
+  // token variables can't change the outcome. The run fails before reaching GitHub, naming the host twice.
+  const dir = mkdtempSync(join(tmpdir(), "gh-notif-clean-"));
+  t.after(() => rmSync(dir, { recursive: true }));
+  writeFileSync(join(dir, "gh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
   const host = `${"x".repeat(100_000)}.invalid`;
-  const { status, stderr } = runIntoSlowPipe([], { GH_HOST: host });
+  const { status, stderr } = runIntoSlowPipe([], { GH_HOST: host, PATH: `${dir}${delimiter}${process.env.PATH}` });
   assert.equal(status, 1);
   assert.equal(stderr, `gh notif-clean: gh is not logged in to ${host}; run: gh auth login --hostname ${host}\n`);
 });
