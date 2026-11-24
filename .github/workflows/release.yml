@@ -40,14 +40,17 @@ jobs:
       - run: script/build.sh
       # A draft with generated notes and every file in dist/ as an asset of the same name. A
       # tag with a "-", such as v0.2.0-rc.1, makes a prerelease, which gh extension install
-      # skips. A re-run uploads into the draft that the first run created.
+      # skips. A re-run uploads into the draft that the first run created. --verify-tag stops
+      # the job if the tag is gone from GitHub: publishing the draft would create it again, on
+      # the default branch, which need not be the commit these binaries were built from.
       - name: Create the draft release
         run: |
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null; then
             gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber -- dist/*
           else
-            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --prerelease="$PRERELEASE" \
-              --title "gh-notif-clean ${TAG#v}" --generate-notes -- dist/*
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --verify-tag --draft \
+              --prerelease="$PRERELEASE" --title "gh-notif-clean ${TAG#v}" \
+              --generate-notes -- dist/*
           fi
         env:
           GH_TOKEN: ${{ github.token }}
