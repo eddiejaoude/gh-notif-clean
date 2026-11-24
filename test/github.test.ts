@@ -3,10 +3,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { apiBaseUrl, createApi, findGh, ghAuth, HttpError } from "../src/github.ts";
+import { setTimeout as sleep } from "node:timers/promises";
+import { apiBaseUrl, createApi, findGh, ghAuth, HttpError, type Api } from "../src/github.ts";
 
 const json = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), { ...init, headers: { "content-type": "application/json", ...init.headers } });
+
+/** `api` as createApi returns it, and with a signal, as clean() hands it to each thread. */
+const withAndWithoutSignal = (api: Api) => [api, api.withSignal(new AbortController().signal)];
 
 test("getAll follows Link pages and retries server errors", async () => {
   const calls: string[] = [];
@@ -61,7 +65,7 @@ test("client errors are not retried", async () => {
 
 test("a URL on another origin throws without calling fetch", async () => {
   let calls = 0;
-  const api = createApi({
+  const plain = createApi({
     token: "t",
     baseUrl: "https://api.github.com",
     fetch: async () => {
@@ -70,10 +74,12 @@ test("a URL on another origin throws without calling fetch", async () => {
     },
   });
 
-  await assert.rejects(api.get("https://example.com/repos/x/y/pulls/1"), /refusing to send the GitHub token/);
-  await assert.rejects(api.getAll("https://example.com/notifications"), /refusing to send the GitHub token/);
-  await assert.rejects(api.get("https://api.github.com.example.com/repos/x/y"), /refusing to send the GitHub token/);
-  await assert.rejects(api.get("https://api.github.com:8443/repos/x/y"), /refusing to send the GitHub token/);
+  for (const api of withAndWithoutSignal(plain)) {
+    await assert.rejects(api.get("https://example.com/repos/x/y/pulls/1"), /refusing to send the GitHub token/);
+    await assert.rejects(api.getAll("https://example.com/notifications"), /refusing to send the GitHub token/);
+    await assert.rejects(api.get("https://api.github.com.example.com/repos/x/y"), /refusing to send the GitHub token/);
+    await assert.rejects(api.get("https://api.github.com:8443/repos/x/y"), /refusing to send the GitHub token/);
+  }
   assert.equal(calls, 0);
 });
 
@@ -84,8 +90,8 @@ test("getAll stops at a Link page on another origin", async () => {
     "/notifications?page=2",
   ]) {
     const calls: string[] = [];
-    const pages = [json([1], { headers: { link: `<${next}>; rel="next"` } }), json([2])];
-    const api = createApi({
+    let pages: Response[] = [];
+    const plain = createApi({
       token: "t",
       baseUrl: "https://api.github.com",
       fetch: async (url) => {
@@ -94,8 +100,12 @@ test("getAll stops at a Link page on another origin", async () => {
       },
     });
 
-    await assert.rejects(api.getAll("notifications"), /refusing to send the GitHub token/);
-    assert.deepEqual(calls, ["https://api.github.com/notifications?per_page=100"]);
+    for (const api of withAndWithoutSignal(plain)) {
+      calls.length = 0;
+      pages = [json([1], { headers: { link: `<${next}>; rel="next"` } }), json([2])];
+      await assert.rejects(api.getAll("notifications"), /refusing to send the GitHub token/);
+      assert.deepEqual(calls, ["https://api.github.com/notifications?per_page=100"]);
+    }
   }
 });
 
@@ -247,7 +257,7 @@ test("ghAuth accepts a plain host name and goes on to look for gh", () => {
 
 test("markDone refuses a thread id that isn't a number without calling fetch", async () => {
   const calls: string[] = [];
-  const api = createApi({
+  const plain = createApi({
     token: "t",
     baseUrl: "https://api.github.com",
     fetch: async (url) => {
@@ -256,12 +266,90 @@ test("markDone refuses a thread id that isn't a number without calling fetch", a
     },
   });
 
-  for (const id of ["../../repos/o/r/git/refs/heads/main", "..", "", "123/..", "../123"]) {
-    await assert.rejects(api.markDone(id), /refusing to mark thread/);
+  for (const api of withAndWithoutSignal(plain)) {
+    calls.length = 0;
+    for (const id of ["../../repos/o/r/git/refs/heads/main", "..", "", "123/..", "../123"]) {
+      await assert.rejects(api.markDone(id), /refusing to mark thread/);
+    }
+    assert.deepEqual(calls, []);
+    await api.markDone("123");
+    assert.deepEqual(calls, ["https://api.github.com/notifications/threads/123"]);
   }
-  assert.deepEqual(calls, []);
-  await api.markDone("123");
-  assert.deepEqual(calls, ["https://api.github.com/notifications/threads/123"]);
+});
+
+test("a request in flight ends when the client's signal aborts, and isn't retried", async () => {
+  let calls = 0;
+  let cancelled = 0;
+  const controller = new AbortController();
+  const api = createApi({
+    token: "t",
+    baseUrl: "https://api.github.com",
+    retryDelayMs: 0,
+    // Like fetch over a connection that never answers: the request ends only when its signal aborts.
+    fetch: (_url, init) =>
+      new Promise((_resolve, reject) => {
+        calls++;
+        const signal = init?.signal;
+        if (!signal) return reject(new Error("fetch got no signal"));
+        if (signal.aborted) return reject(signal.reason);
+        signal.addEventListener("abort", () => {
+          cancelled++;
+          reject(signal.reason);
+        });
+      }),
+  }).withSignal(controller.signal);
+
+  const request = api.get("user");
+  await sleep(0); // until the request is waiting on fetch
+  controller.abort();
+  await assert.rejects(request, { name: "AbortError" });
+  assert.deepEqual({ calls, cancelled }, { calls: 1, cancelled: 1 });
+});
+
+test("a wait to retry ends at once when the client's signal aborts", async () => {
+  let calls = 0;
+  const controller = new AbortController();
+  const api = createApi({
+    token: "t",
+    baseUrl: "https://api.github.com",
+    attempts: 2,
+    retryDelayMs: 5_000,
+    fetch: async () => {
+      calls++;
+      return json({ message: "bad gateway" }, { status: 502 });
+    },
+  }).withSignal(controller.signal);
+
+  const started = performance.now();
+  const request = api.get("user");
+  // By now the 502 is in, and the request is waiting 5 s to retry it.
+  await sleep(50);
+  controller.abort();
+  await assert.rejects(request, { name: "AbortError" });
+  const elapsed = performance.now() - started;
+  assert.equal(calls, 1);
+  // Half the wait: a request that honoured the abort only once its wait ran out would end after 5 s.
+  assert.ok(elapsed < 2_500, `the request ended after ${Math.round(elapsed)} ms, not soon after the abort at 50 ms`);
+});
+
+test("withSignal on a client that has a signal ties its requests to both", async () => {
+  for (const which of [0, 1] as const) {
+    const controllers = [new AbortController(), new AbortController()] as const;
+    const api = createApi({
+      token: "t",
+      baseUrl: "https://api.github.com",
+      // Like fetch, which doesn't send a request whose signal has aborted.
+      fetch: async (_url, init) => {
+        init?.signal?.throwIfAborted();
+        return json({ login: "octocat" });
+      },
+    })
+      .withSignal(controllers[0].signal)
+      .withSignal(controllers[1].signal);
+
+    controllers[which].abort();
+    await assert.rejects(api.get("user"), { name: "AbortError" }, `aborting signal ${which} didn't stop the request`);
+  }
 });
 
 // findGh's view of the file system: the given files are executable. Records every path it checks.

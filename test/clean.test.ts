@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { clean, type CleanOptions, type Notification } from "../src/clean.ts";
-import type { Api } from "../src/github.ts";
+import { createApi, type Api } from "../src/github.ts";
 import { DEFAULT_IGNORED } from "../src/rules.ts";
 
 const API = "https://api.github.com/repos";
@@ -45,6 +45,8 @@ function fakeApi(notifications: Notification[], responses: Record<string, unknow
       if (failDone.includes(id)) throw new Error("500 server error");
       marked.push(id);
     },
+    // Every answer is immediate, so no request is ever left to cancel.
+    withSignal: () => api,
   };
   return { api, marked, listed, requested };
 }
@@ -143,6 +145,60 @@ test("--since and --unread-only shape the notifications list request", async () 
     { all: "true", since: "2026-11-17T12:34:56Z" },
     { since: "2026-11-17T12:34:56Z" },
   ]);
+});
+
+test("a thread kept on a failed request has its other requests cancelled before clean() returns", async () => {
+  // PR 1's timeline is missing, so its thread is kept on that 404, while its review comments and
+  // commits, requested alongside, answer only once cancelled, as over a stalled connection. PR 2
+  // is bot-only, and every one of its requests is answered at once.
+  const responses: Record<string, unknown> = {
+    "https://api.github.com/notifications?all=true": [
+      thread("1", "me/app", "PullRequest", `${API}/me/app/pulls/1`),
+      thread("2", "me/app", "PullRequest", `${API}/me/app/pulls/2`),
+    ],
+    [`${API}/me/app/pulls/1`]: { user: { login: "dependabot[bot]" }, state: "open" },
+    ...pr("me/app", 2, "dependabot[bot]", []),
+  };
+  const stalled = new Set<string>();
+  const deleted: string[] = [];
+  const api = createApi({
+    token: "t",
+    baseUrl: "https://api.github.com",
+    fetch: async (input, init) => {
+      // Like fetch, which doesn't send a request whose signal has aborted.
+      init?.signal?.throwIfAborted();
+      const url = String(input).replace(/[?&]per_page=100$/, "");
+      if (init?.method === "DELETE") {
+        deleted.push(url);
+        return new Response(null, { status: 204 });
+      }
+      if (url === `${API}/me/app/pulls/1/comments` || url === `${API}/me/app/pulls/1/commits`) {
+        stalled.add(url);
+        const signal = init?.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            stalled.delete(url);
+            reject(signal.reason);
+          });
+        });
+      }
+      return url in responses ? Response.json(responses[url]) : Response.json({ message: "Not Found" }, { status: 404 });
+    },
+  });
+
+  // One thread at a time, so PR 2 starts after PR 1's abort: an abort that reached past its own
+  // thread would cancel PR 2's requests too.
+  const results = await clean(api, options({ concurrency: 1 }));
+
+  assert.deepEqual([...stalled], [], "requests still running when clean() returned");
+  assert.deepEqual(
+    results.map((r) => [r.id, r.outcome, r.reason]),
+    [
+      ["1", "kept", `couldn't inspect: GET ${API}/me/app/issues/1/timeline?per_page=100: 404 {"message":"Not Found"}`],
+      ["2", "done", undefined],
+    ],
+  );
+  assert.deepEqual(deleted, ["https://api.github.com/notifications/threads/2"]);
 });
 
 describe("discussions", () => {

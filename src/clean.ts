@@ -141,59 +141,77 @@ function notificationsPath(options: CleanOptions): string {
   return query.size > 0 ? `notifications?${query}` : "notifications";
 }
 
+/** Decides whether thread `n` is done and, unless this is a dry run, marks it done. */
+async function cleanThread(api: Api, n: Notification, options: CleanOptions): Promise<ThreadResult> {
+  const base = {
+    id: n.id,
+    repo: n.repository.full_name,
+    type: n.subject.type,
+    title: n.subject.title,
+    url: null as string | null,
+    participants: [] as string[],
+  };
+  const byReason = options.keepReasons.has(n.reason) ? `notification reason: ${n.reason}` : null;
+  if (!n.subject.url) return { ...base, outcome: "kept", reason: byReason ?? `${n.subject.type} threads can't be inspected` };
+
+  let subject: Subject;
+  let logins: Set<string>;
+  try {
+    subject = await api.get<Subject>(n.subject.url);
+    base.url = subject.html_url ?? null;
+    // A closed or merged subject no longer needs you, so it's decided as if the reason didn't match.
+    // A release or commit has no state, so it keeps matching.
+    if (byReason && subject.state !== "closed") return { ...base, outcome: "kept", reason: byReason };
+    logins = participants(await loadActivity(api, n.subject.url, n.subject.type, subject));
+    base.participants = [...logins].sort();
+  } catch (error) {
+    return { ...base, outcome: "kept", reason: `couldn't inspect: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  const headSha = subject.head?.sha ?? null;
+  const open = subject.state === "open";
+
+  const decision = decide(logins, options.me, options.ignored);
+  if (!decision.done) return { ...base, outcome: "kept", reason: decision.reason };
+  if (options.keepFailed && n.subject.type === "PullRequest" && open) {
+    let reason: string | null;
+    try {
+      if (!headSha) throw new Error("no head commit");
+      reason = await loadChecksReason(api, n.subject.url, headSha);
+    } catch (error) {
+      reason = `couldn't inspect checks: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    if (reason) return { ...base, outcome: "kept", reason };
+  }
+  if (options.closedOnly && open && (n.subject.type === "PullRequest" || n.subject.type === "Issue")) {
+    return { ...base, outcome: "kept", reason: "still open" };
+  }
+  if (options.dryRun) return { ...base, outcome: "would-done" };
+  try {
+    await api.markDone(n.id);
+    return { ...base, outcome: "done" };
+  } catch (error) {
+    return { ...base, outcome: "failed", reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export async function clean(api: Api, options: CleanOptions): Promise<ThreadResult[]> {
   const list = await api.getAll<Notification>(notificationsPath(options));
   const threads = list.filter((n) => inRepos(n.repository.full_name, options.repos));
 
-  return mapPool(threads, options.concurrency ?? 8, async (n): Promise<ThreadResult> => {
-    const base = {
-      id: n.id,
-      repo: n.repository.full_name,
-      type: n.subject.type,
-      title: n.subject.title,
-      url: null as string | null,
-      participants: [] as string[],
-    };
-    const byReason = options.keepReasons.has(n.reason) ? `notification reason: ${n.reason}` : null;
-    if (!n.subject.url) return { ...base, outcome: "kept", reason: byReason ?? `${n.subject.type} threads can't be inspected` };
-
-    let subject: Subject;
-    let logins: Set<string>;
+  return mapPool(threads, options.concurrency ?? 8, async (n) => {
+    // When one of the requests a thread makes in parallel fails, the thread is decided without
+    // waiting for the others, which would run on, retries included, and keep the process alive
+    // after the run. Abort them once it's decided: every request it still waited for has finished
+    // by then, so the abort can't change its result.
+    // One signal per thread, not one for the run: a thread's leftovers stop as soon as it's
+    // decided rather than when the run ends, and fetch adds a listener to its signal for each
+    // request that stays until the request is garbage-collected: with a run's thousands of
+    // requests on one signal, Node 22 warns on stderr past 1,500 listeners.
+    const controller = new AbortController();
     try {
-      subject = await api.get<Subject>(n.subject.url);
-      base.url = subject.html_url ?? null;
-      // A closed or merged subject no longer needs you, so it's decided as if the reason didn't match.
-      // A release or commit has no state, so it keeps matching.
-      if (byReason && subject.state !== "closed") return { ...base, outcome: "kept", reason: byReason };
-      logins = participants(await loadActivity(api, n.subject.url, n.subject.type, subject));
-      base.participants = [...logins].sort();
-    } catch (error) {
-      return { ...base, outcome: "kept", reason: `couldn't inspect: ${error instanceof Error ? error.message : String(error)}` };
-    }
-    const headSha = subject.head?.sha ?? null;
-    const open = subject.state === "open";
-
-    const decision = decide(logins, options.me, options.ignored);
-    if (!decision.done) return { ...base, outcome: "kept", reason: decision.reason };
-    if (options.keepFailed && n.subject.type === "PullRequest" && open) {
-      let reason: string | null;
-      try {
-        if (!headSha) throw new Error("no head commit");
-        reason = await loadChecksReason(api, n.subject.url, headSha);
-      } catch (error) {
-        reason = `couldn't inspect checks: ${error instanceof Error ? error.message : String(error)}`;
-      }
-      if (reason) return { ...base, outcome: "kept", reason };
-    }
-    if (options.closedOnly && open && (n.subject.type === "PullRequest" || n.subject.type === "Issue")) {
-      return { ...base, outcome: "kept", reason: "still open" };
-    }
-    if (options.dryRun) return { ...base, outcome: "would-done" };
-    try {
-      await api.markDone(n.id);
-      return { ...base, outcome: "done" };
-    } catch (error) {
-      return { ...base, outcome: "failed", reason: error instanceof Error ? error.message : String(error) };
+      return await cleanThread(api.withSignal(controller.signal), n, options);
+    } finally {
+      controller.abort();
     }
   });
 }
