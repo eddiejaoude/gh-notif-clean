@@ -1,0 +1,81 @@
+name: Release
+
+# Push a v* tag from main to release. Never create the release by hand: this workflow then
+# uploads into it afterwards, and until it does, the latest release has no binaries, so new
+# installs get the script and upgrades of binary installs fail.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload its assets
+      id-token: write # sign the attestations
+      attestations: write # store them
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+          no-cache: true # build a release with a fresh download, never an Actions cache
+      # Runs script/build.sh, creates the release with generated notes and every file in
+      # dist/, then attests each file. A tag with a "-", such as v0.2.0-rc.1, makes a
+      # prerelease, which gh extension install skips.
+      - uses: cli/gh-extension-precompile@v2
+        with:
+          build_script_override: script/build.sh
+          generate_attestations: true
+
+  verify:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, asset: gh-notif-clean-linux-amd64 }
+          - { os: ubuntu-24.04-arm, asset: gh-notif-clean-linux-arm64 }
+          - { os: macos-latest, asset: gh-notif-clean-darwin-arm64 }
+          - { os: macos-15-intel, asset: gh-notif-clean-darwin-amd64 }
+          - { os: windows-latest, asset: gh-notif-clean-windows-amd64.exe }
+          - { os: windows-11-arm, asset: gh-notif-clean-windows-arm64.exe }
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      attestations: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      ASSET: ${{ matrix.asset }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+      # Only to compile the stub gh.exe that script/test-binary.sh runs a Windows binary with.
+      - if: runner.os == 'Windows'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      # The published asset itself, so a prerelease tag checks it too.
+      - run: gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$ASSET" -D dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - run: gh attestation verify "dist/$ASSET" -R "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      # No token in this step's environment, and the binary only ever runs the stub gh.
+      - run: chmod +x "dist/$ASSET" && script/test-binary.sh "dist/$ASSET"
+      # Stable tags only: gh installs from the latest stable release, so for a prerelease
+      # tag it would install an older one. A script install lists a commit SHA, not the tag.
+      # --help exits before the binary asks gh for a token.
+      - if: ${{ !contains(github.ref_name, '-') }}
+        run: |
+          gh extension install "$GITHUB_REPOSITORY"
+          gh extension list | grep -F "$TAG"
+          gh notif-clean --help
+        env:
+          GH_TOKEN: ${{ github.token }}
