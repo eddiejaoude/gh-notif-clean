@@ -122,12 +122,12 @@ test("GHES: requests on the host's origin carry the token, others throw", async 
 });
 
 test("GHE.com: requests on the tenant's API origin carry the token, its web host and other tenants throw", async () => {
-  const calls: string[] = [];
+  const calls: [string, string | undefined, string | null][] = [];
   const api = createApi({
     token: "t",
     baseUrl: apiBaseUrl("octocorp.ghe.com"),
-    fetch: async (url) => {
-      calls.push(String(url));
+    fetch: async (url, init) => {
+      calls.push([String(url), init?.method, new Headers(init?.headers).get("authorization")]);
       return json([]);
     },
   });
@@ -143,9 +143,9 @@ test("GHE.com: requests on the tenant's API origin carry the token, its web host
     await assert.rejects(api.get(url), /refusing to send the GitHub token/);
   }
   assert.deepEqual(calls, [
-    "https://api.octocorp.ghe.com/repos/x/y/pulls/1",
-    "https://api.octocorp.ghe.com/repos/x/y/issues/2",
-    "https://api.octocorp.ghe.com/notifications/threads/3",
+    ["https://api.octocorp.ghe.com/repos/x/y/pulls/1", "GET", "Bearer t"],
+    ["https://api.octocorp.ghe.com/repos/x/y/issues/2", "GET", "Bearer t"],
+    ["https://api.octocorp.ghe.com/notifications/threads/3", "DELETE", "Bearer t"],
   ]);
 });
 
