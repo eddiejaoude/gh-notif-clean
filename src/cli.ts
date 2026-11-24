@@ -135,6 +135,14 @@ async function main(argv: string[]): Promise<number> {
   return failed > 0 ? 1 : 0;
 }
 
+// A reader that closes the pipe early, as `| head` does, isn't a failure. Without a listener the
+// failed write is thrown: a stack trace and exit 1, whatever main() returned.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code !== "EPIPE") throw error;
+  });
+}
+
 // Set the exit code rather than call process.exit(): writes to a pipe are asynchronous, and
 // process.exit() ends the process before they drain, cutting piped output off at 64 KiB.
 main(process.argv.slice(2)).then(

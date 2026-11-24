@@ -16,14 +16,16 @@ function run(args: string[], env: NodeJS.ProcessEnv = {}) {
   });
 }
 
-// Runs the CLI with stderr piped to a reader that starts reading after 200 ms. The output in these
-// tests is larger than the 64 KiB a pipe holds, so the CLI has to wait for the reader before it
-// exits. The delay is real time on purpose: a reader that keeps up, like cat, sometimes drains the
-// pipe before an early exit and hides the cut-off (1 run in 20 on Linux, Node 24). The reader is
-// Node because POSIX `sleep` only takes whole seconds. sh makes the pipe because Node's own child
-// pipes are socket pairs, with a bigger buffer on Linux. The CLI's exit code comes back on sh's stderr.
-function runIntoPipe(args: string[], env: NodeJS.ProcessEnv = {}) {
-  const reader = `"$0" -e 'setTimeout(() => process.stdin.pipe(process.stdout), 200)'`;
+// A reader that starts reading after 200 ms. The delay is real time on purpose: a reader that keeps
+// up, like cat, sometimes drains the pipe before an early exit and hides the cut-off (1 run in 20 on
+// Linux, Node 24). It's Node because POSIX `sleep` only takes whole seconds; "$0" is Node in runIntoPipe.
+const slowReader = `"$0" -e 'setTimeout(() => process.stdin.pipe(process.stdout), 200)'`;
+
+// Runs the CLI with stderr piped to the shell command `reader`. The output in these tests is larger
+// than the 64 KiB a pipe holds, so the CLI has to wait for the reader before it exits. sh makes the
+// pipe because Node's own child pipes are socket pairs, with a bigger buffer on Linux. The CLI's exit
+// code comes back on sh's stderr.
+function runIntoPipe(reader: string, args: string[], env: NodeJS.ProcessEnv = {}) {
   const script = `{ "$0" "$@" 2>&1 >/dev/null; echo $? >&3; } 3>&2 | ${reader}`;
   const { stdout, stderr } = spawnSync("sh", ["-c", script, process.execPath, cli, ...args], {
     encoding: "utf8",
@@ -59,10 +61,17 @@ test("an invalid --since exits 2 before reaching GitHub", () => {
 test("a usage error larger than a 64 KiB pipe arrives complete and exits 2", posixPipes, () => {
   // The unknown option is echoed back before the help text.
   const option = `--${"x".repeat(100_000)}`;
-  const { status, stderr } = runIntoPipe([option]);
+  const { status, stderr } = runIntoPipe(slowReader, [option]);
   assert.equal(status, 2);
   assert.ok(stderr.startsWith(`Unknown option '${option}'`), `got ${stderr.length} bytes`);
   assert.match(stderr, /\nReasons for --keep-reason: [a-z_, ]+\n$/);
+});
+
+test("a reader that closes the pipe early doesn't change the exit code", posixPipes, () => {
+  // head takes one byte and exits, so the rest of the usage error can't be written.
+  const { status, stderr } = runIntoPipe("head -c 1", [`--${"x".repeat(100_000)}`]);
+  assert.equal(status, 2);
+  assert.equal(stderr, "U");
 });
 
 test("an error larger than a 64 KiB pipe arrives complete and exits 1", posixPipes, (t) => {
@@ -72,7 +81,7 @@ test("an error larger than a 64 KiB pipe arrives complete and exits 1", posixPip
   t.after(() => rmSync(dir, { recursive: true }));
   writeFileSync(join(dir, "gh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
   const host = `${"x".repeat(100_000)}.invalid`;
-  const { status, stderr } = runIntoPipe([], { GH_HOST: host, PATH: `${dir}${delimiter}${process.env.PATH}` });
+  const { status, stderr } = runIntoPipe(slowReader, [], { GH_HOST: host, PATH: `${dir}${delimiter}${process.env.PATH}` });
   assert.equal(status, 1);
   const expected = `gh notif-clean: gh is not logged in to ${host}; run: gh auth login --hostname ${host}\n`;
   assert.ok(stderr === expected, `got ${stderr.length} of ${expected.length} bytes`);
