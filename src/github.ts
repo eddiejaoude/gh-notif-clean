@@ -83,11 +83,14 @@ function isExecutableFile(file: string): boolean {
  * `https://api.github.com` for github.com, `https://api.SUBDOMAIN.ghe.com` for a GitHub
  * Enterprise Cloud tenant on GHE.com, and `https://HOST/api/v3` for GitHub Enterprise Server.
  *
- * Other names aren't mapped the way gh maps them. A subdomain of github.com gets the Enterprise
- * Server form here, where gh uses `https://api.HOST`; `garage.github.com`, which gh maps to the
- * Enterprise Server form by a special case, matches only as a result. A name with more than one
- * label before `.ghe.com` is refused, and so are `github.localhost` and its subdomains, which gh
- * reaches over plain http. A host name may hold only letters, digits, dots and hyphens.
+ * Other names aren't mapped the way gh maps them. A name with more than one label before
+ * `.ghe.com` is refused (see below), and so are `github.localhost` and its subdomains, which gh
+ * reaches over plain http. A subdomain of github.com gets the Enterprise Server form here, where
+ * gh uses `https://api.HOST`. gh reads the token for such a name from the github.com login, as it
+ * does for a nested GHE.com name from its tenant's, yet it isn't refused: `garage.github.com`,
+ * which gh maps to the Enterprise Server form by a special case, gets that form only by falling
+ * through here, and the token stays on github.com's own domain. A host name may hold only
+ * letters, digits, dots and hyphens.
  */
 export function apiBaseUrl(host: string): string {
   if (!/^[a-z0-9.-]+$/i.test(host)) {
