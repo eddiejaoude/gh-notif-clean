@@ -26,6 +26,7 @@ gh extension upgrade notif-clean   # later, to update
 gh notif-clean --dry-run -v                  # preview what would be marked done and why others are kept
 gh notif-clean                               # mark matching threads done
 gh notif-clean --ignore 'cla-assistant[bot]' # also ignore another bot for this run
+GH_NOTIF_CLEAN_IGNORE='cla-assistant[bot],github-actions[bot]' gh notif-clean -n # ignore bots from the environment
 gh notif-clean -R eddiejaoude/StackDash      # only one repository
 gh notif-clean -R paypal                     # only repositories owned by paypal
 gh notif-clean --keep-failed                 # but keep open PRs whose deploy or CI failed or is still running
@@ -39,7 +40,7 @@ gh notif-clean --json -n | jq '.threads[] | select(.outcome == "kept")'
 | `-n`, `--dry-run` | List what would be marked done without changing anything |
 | `-v`, `--verbose` | Also list kept threads, why each was kept, and their URLs |
 | `-i`, `--ignore LOGIN` | Also ignore this account (repeatable). Quote logins containing `[bot]` |
-| `--no-default-bots` | Ignore only the accounts given with `--ignore` |
+| `--no-default-bots` | Ignore only the accounts given with `--ignore` or `GH_NOTIF_CLEAN_IGNORE` |
 | `-R`, `--repo REPO` | Only process `OWNER/NAME`, or every repository of `OWNER` (repeatable) |
 | `--unread-only` | Skip threads you've already read |
 | `--keep-failed` | Keep open PRs whose latest commit has failed or unfinished checks, such as a failed Vercel deploy |
@@ -50,10 +51,10 @@ gh notif-clean --json -n | jq '.threads[] | select(.outcome == "kept")'
 
 It exits with `0` on success, `1` if marking any thread done failed, and `2` for invalid flags.
 
-To always ignore extra bots, create a `gh` alias:
+To always ignore extra bots, set `GH_NOTIF_CLEAN_IGNORE` to a list of logins separated by commas or whitespace, for example in your shell profile or CI. Empty entries are skipped, and each remaining entry works like an `--ignore` value: `--no-default-bots` still drops only the built-in defaults.
 
 ```sh
-gh alias set notif-clean-all "notif-clean --ignore 'cla-assistant[bot]' --ignore 'github-actions[bot]'"
+export GH_NOTIF_CLEAN_IGNORE='cla-assistant[bot],github-actions[bot]'
 ```
 
 The REST API keeps returning done threads from `notifications?all=true`, so each run checks them again. Marking an already-done thread done again does nothing.

@@ -104,6 +104,25 @@ export function parseReasons(values: readonly string[]): Set<string> {
   return new Set(values.map((v) => v.toLowerCase()));
 }
 
+/** Logins from a list such as GH_NOTIF_CLEAN_IGNORE, separated by commas and/or whitespace; empty entries skipped. */
+export function parseIgnoreList(value: string | undefined): string[] {
+  return (value ?? "").split(/[\s,]+/).filter((v) => v !== "");
+}
+
+/** Lowercased logins to ignore: the defaults unless dropped, then GH_NOTIF_CLEAN_IGNORE and --ignore entries. */
+export function ignoredLogins(options: {
+  noDefaultBots: boolean;
+  env: string | undefined;
+  ignore: readonly string[];
+}): Set<string> {
+  const logins = [
+    ...(options.noDefaultBots ? [] : DEFAULT_IGNORED),
+    ...parseIgnoreList(options.env),
+    ...options.ignore,
+  ];
+  return new Set(logins.map((l) => l.toLowerCase()));
+}
+
 /** Latest status per context on a commit, from the combined status endpoint. */
 export interface CommitStatus {
   context: string;
