@@ -91,7 +91,8 @@ function isExecutableFile(file: string): boolean {
  * which gh maps to the Enterprise Server form by a special case, gets that form only by falling
  * through here, and the token stays on github.com's own domain. A host name may hold only
  * letters, digits, dots and hyphens, and must parse back as itself in a URL, which rules out
- * names a URL reads as an IP address, such as 2130706433.
+ * names a URL rewrites as an IP address, such as 2130706433, or can't read; a plain IPv4
+ * address such as 10.0.0.5 comes back unchanged and is accepted.
  */
 export function apiBaseUrl(host: string): string {
   const name = host.toLowerCase();

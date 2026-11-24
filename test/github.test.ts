@@ -160,6 +160,7 @@ test("apiBaseUrl maps each kind of host to its REST API base", () => {
     ["octo-corp1.ghe.com", "https://api.octo-corp1.ghe.com"],
     // GitHub Enterprise Server, and any other host.
     ["ghe.example", "https://ghe.example/api/v3"],
+    ["10.0.0.5", "https://10.0.0.5/api/v3"],
     ["ghe-01.corp.example", "https://ghe-01.corp.example/api/v3"],
     ["ghe.com", "https://ghe.com/api/v3"],
     ["notghe.com", "https://notghe.com/api/v3"],
