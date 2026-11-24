@@ -70,6 +70,7 @@ test("a URL on another origin throws without calling fetch", async () => {
   await assert.rejects(api.get("https://example.com/repos/x/y/pulls/1"), /refusing to send the GitHub token/);
   await assert.rejects(api.getAll("https://example.com/notifications"), /refusing to send the GitHub token/);
   await assert.rejects(api.get("https://api.github.com.example.com/repos/x/y"), /refusing to send the GitHub token/);
+  await assert.rejects(api.get("https://api.github.com:8443/repos/x/y"), /refusing to send the GitHub token/);
   assert.equal(calls, 0);
 });
 
