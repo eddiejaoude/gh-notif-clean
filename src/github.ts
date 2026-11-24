@@ -88,7 +88,19 @@ function isExecutableFile(file: string): boolean {
 export function apiBaseUrl(host: string): string {
   const name = host.toLowerCase();
   if (name === "github.com") return "https://api.github.com";
-  if (name.endsWith(".ghe.com")) return `https://api.${name}`;
+  if (name.endsWith(".ghe.com")) {
+    // gh reads the token for a.b.ghe.com from its login to b.ghe.com, so a name with more than
+    // one label before .ghe.com would send tenant b's token to another host.
+    const tenant = name.slice(0, -".ghe.com".length);
+    if (!/^[a-z0-9-]+$/.test(tenant)) {
+      const last = tenant.slice(tenant.lastIndexOf(".") + 1);
+      throw new Error(
+        `GH_HOST ${host} isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com` +
+          (/^[a-z0-9-]+$/.test(last) ? `; use ${last}.ghe.com` : ""),
+      );
+    }
+    return `https://api.${name}`;
+  }
   return `https://${name}/api/v3`;
 }
 
@@ -102,6 +114,8 @@ export function ghAuth(
   isExecutable: (file: string) => boolean = isExecutableFile,
 ): { token: string; baseUrl: string } {
   const host = env.GH_HOST ?? "github.com";
+  // Before gh runs, so no token is read for a host that's refused.
+  const baseUrl = apiBaseUrl(host);
   const gh = findGh(env, platform, isExecutable);
   if (gh === undefined) {
     throw new Error("gh not found in GH_PATH or PATH; install GitHub CLI: https://cli.github.com");
@@ -120,7 +134,7 @@ export function ghAuth(
     }
     throw new Error(`can't run ${gh}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  return { token, baseUrl: apiBaseUrl(host) };
+  return { token, baseUrl };
 }
 
 export interface ApiOptions {

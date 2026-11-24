@@ -170,6 +170,29 @@ test("apiBaseUrl maps each kind of host to its REST API the way gh does", () => 
   }
 });
 
+test("apiBaseUrl refuses a name with more than one label before .ghe.com, naming the tenant host", () => {
+  for (const [host, message] of [
+    ["api.octocorp.ghe.com", "GH_HOST api.octocorp.ghe.com isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com; use octocorp.ghe.com"],
+    ["A.B.ghe.com", "GH_HOST A.B.ghe.com isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com; use b.ghe.com"],
+    [".ghe.com", "GH_HOST .ghe.com isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com"],
+  ] as const) {
+    assert.throws(() => apiBaseUrl(host), { message }, host);
+  }
+});
+
+test("ghAuth refuses a host before it looks for gh", () => {
+  for (const host of ["api.octocorp.ghe.com"]) {
+    // Finds no gh, so nothing runs even if the host were checked too late.
+    let looked = false;
+    const isExecutable = () => {
+      looked = true;
+      return false;
+    };
+    assert.throws(() => ghAuth({ GH_HOST: host, PATH: "/nonexistent-gh-notif-clean" }, "linux", isExecutable), /^Error: GH_HOST /, host);
+    assert.equal(looked, false, host);
+  }
+});
+
 test("markDone refuses a thread id that isn't a number without calling fetch", async () => {
   const calls: string[] = [];
   const api = createApi({
