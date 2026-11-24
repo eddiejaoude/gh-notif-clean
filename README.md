@@ -39,7 +39,7 @@ v0.1.0 is a script that `gh` runs with Node. `gh extension upgrade notif-clean` 
 
 ### Run from source
 
-There's no binary for other systems, such as FreeBSD or 32-bit ones. `gh` does install a Linux binary on Alpine Linux and other systems that use musl instead of glibc, but it can't start there: the shell reports it `not found`, with exit code 127. Bun, which the binaries are built with, also needs macOS 13 or later and Windows 10 version 1809 or later, so older versions get a binary that may not run. On all of these, run the extension from source with Node.js 22.18 or later:
+There's no binary for other systems, such as FreeBSD or 32-bit ones. `gh` does install a Linux binary on Alpine Linux and other systems that use musl instead of glibc, but it can't start there: `gh notif-clean` fails with `failed to run extension: fork/exec …: no such file or directory` and exit code 1. Bun, which the binaries are built with, also needs macOS 13 or later and Windows 10 version 1809 or later, so older versions get a binary that may not run. On all of these, run the extension from source with Node.js 22.18 or later:
 
 ```sh
 gh extension remove notif-clean   # if it's installed
