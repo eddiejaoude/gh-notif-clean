@@ -248,12 +248,15 @@ describe("checksReason (README --keep-failed examples)", () => {
     assert.equal(checksReason([], [timedOut, pushPass], workflowRuns), "checks cancelled: deploy", "pull_request cancelled");
   });
 
-  test("a cancelled run whose namesake passed later in another workflow or the same run, or with no workflow runs, keeps the thread", () => {
+  test("a cancelled run whose namesake passed later in another workflow or the same run, or without both workflow runs listed, keeps the thread", () => {
     for (const suite of [4, 1]) {
       const pass = run("deploy", "completed", "success", 60, 3600, suite);
       assert.equal(checksReason([], [timedOut, pass], workflowRuns), "checks cancelled: deploy", `suite ${suite}`);
     }
     assert.equal(checksReason([], [timedOut, deployPassed], []), "checks cancelled: deploy", "no workflow runs");
+    assert.equal(checksReason([], [{ ...timedOut, check_suite: { id: 99 } }, deployPassed], workflowRuns), "checks cancelled: deploy", "cancelled run's workflow run not listed");
+    assert.equal(checksReason([], [timedOut, { ...deployPassed, check_suite: { id: 99 } }], workflowRuns), "checks cancelled: deploy", "pass's workflow run not listed");
+    assert.equal(checksReason([], [timedOut, { ...deployPassed, check_suite: null }], workflowRuns), "checks cancelled: deploy", "pass outside a check suite");
   });
 
   test("a cancelled run whose newer run's pass overlapped it or came first keeps the thread", () => {
