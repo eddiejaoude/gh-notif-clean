@@ -69,7 +69,7 @@ Each notification is a thread about one PR, issue, release, commit or discussion
 
 Being mentioned in or subscribed to a thread doesn't count as taking part.
 
-For discussions, it collects the author, everyone who commented, replies to comments included, and whoever marked a comment as the answer. The comments add one API request per discussion (more past 100 comments); the answer comes with the discussion itself. Other discussion activity, such as labelling it, isn't checked. For releases and commits, only the author is checked.
+For discussions, it collects the author, everyone who commented (replies to comments included) and whoever marked the current answer. The comments add one API request per discussion (more past 100 comments); the answer comes with the discussion itself. GitHub's API reports only the current answer, so an account that marked one stops counting once it's unmarked or replaced. Other discussion activity, such as labelling it, isn't checked. For releases and commits, only the author is checked.
 
 It then checks the whole group:
 
