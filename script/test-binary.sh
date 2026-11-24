@@ -62,17 +62,25 @@ EOF
 printf 'GH_HOST=hostile.invalid\nGH_NOTIF_CLEAN_IGNORE=hostile-bot\n' >"$hostile/.env"
 cp "$stubs"/gh* "$hostile"/
 
+# What run unsets, so a contributor's shell can't change a check's result: the variables that
+# choose which gh runs, its host and its token, and those the binary's runtime reads to pick
+# a proxy or extra options.
+unset_vars=()
+for var in GH_HOST GH_PATH GH_NOTIF_CLEAN_IGNORE GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN \
+  GITHUB_ENTERPRISE_TOKEN HTTPS_PROXY https_proxy HTTP_PROXY http_proxy ALL_PROXY all_proxy \
+  NO_PROXY no_proxy BUN_OPTIONS BUN_BE_BUN; do
+  unset_vars+=(-u "$var")
+done
+
 # run DIR [NAME=VALUE...] BINARY [ARG...]: runs BINARY in DIR with PATH holding the working
-# directory, then the stub gh, and without any variable the binary or gh reads apart from
-# those given, GH_PATH included, so the binary looks for gh through PATH. Sets status, out,
-# err and calls, the stub's log.
+# directory, then the stub gh, and none of the variables above apart from those given, so the
+# binary looks for gh through PATH. Sets status, out, err and calls, the stub's log.
 run() {
   local dir=$1
   shift
   rm -f "$stubs/calls"
   status=0
-  (cd "$dir" && env -u GH_HOST -u GH_PATH -u GH_NOTIF_CLEAN_IGNORE -u GH_TOKEN -u GITHUB_TOKEN \
-    -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN PATH=".:$stubs" "$@") \
+  (cd "$dir" && env "${unset_vars[@]}" PATH=".:$stubs" "$@") \
     >"$work/out" 2>"$work/err" || status=$?
   out=$(<"$work/out")
   err=$(<"$work/err")
