@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Checks one compiled binary without reaching GitHub or any real gh login: flag handling,
-# spawning gh, and that a directory's bunfig.toml and .env take no effect. The binary runs
-# with nothing but a stub gh on PATH, so it also shows that it needs neither Node nor Bun.
+# spawning gh, and that a bunfig.toml, .env or gh in the working directory takes no effect.
+# The binary runs with nothing on PATH but the working directory and a stub gh, so it also
+# shows that it needs neither Node nor Bun.
 # Testing a Windows binary needs Bun, to compile the stub gh.exe.
 # Usage: script/test-binary.sh dist/gh-notif-clean-<os>-<arch>[.exe]
 # check takes each condition in single quotes, to evaluate it after the run it checks.
@@ -51,24 +52,27 @@ EOF
   chmod +x "$stubs/gh"
 fi
 
-# What a repository could commit to take over a run in its checkout.
+# Files in the working directory that must not change what the binary does, the stub gh
+# included: a copy here would log to $hostile/calls.
 echo 'preload = ["./preload.js"]' >"$hostile/bunfig.toml"
 cat >"$hostile/preload.js" <<'EOF'
 require("node:fs").writeFileSync(require("node:path").join(__dirname, "preload-ran"), "");
 console.error("hostile preload ran");
 EOF
 printf 'GH_HOST=hostile.invalid\nGH_NOTIF_CLEAN_IGNORE=hostile-bot\n' >"$hostile/.env"
+cp "$stubs"/gh* "$hostile"/
 
-# run DIR [NAME=VALUE...] BINARY [ARG...]: runs BINARY in DIR with only the stub gh on PATH,
-# without any variable the binary or gh reads apart from those given, GH_PATH included, so
-# the binary finds the stub through PATH. Sets status, out, err and calls, the stub's log.
+# run DIR [NAME=VALUE...] BINARY [ARG...]: runs BINARY in DIR with PATH holding the working
+# directory, then the stub gh, and without any variable the binary or gh reads apart from
+# those given, GH_PATH included, so the binary looks for gh through PATH. Sets status, out,
+# err and calls, the stub's log.
 run() {
   local dir=$1
   shift
   rm -f "$stubs/calls"
   status=0
   (cd "$dir" && env -u GH_HOST -u GH_PATH -u GH_NOTIF_CLEAN_IGNORE -u GH_TOKEN -u GITHUB_TOKEN \
-    -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN PATH="$stubs" "$@") \
+    -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN PATH=".:$stubs" "$@") \
     >"$work/out" 2>"$work/err" || status=$?
   out=$(<"$work/out")
   err=$(<"$work/err")
@@ -113,6 +117,7 @@ check "a .env's GH_HOST takes no effect" \
   '[[ $status == 1 && $calls == "auth token --hostname github.com" && $err == *"not logged in to github.com;"* ]]'
 
 check "a bunfig.toml's preload doesn't run" '[[ ! -e $hostile/preload-ran ]]'
+check "a gh in the working directory isn't run" '[[ ! -e $hostile/calls ]]'
 
 if ((failed)); then
   echo "script/test-binary.sh: $1 failed" >&2
