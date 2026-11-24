@@ -203,6 +203,10 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
     // waiting for the others, which would run on, retries included, and keep the process alive
     // after the run. Abort them once it's decided: every request it still waited for has finished
     // by then, so the abort can't change its result.
+    // One signal per thread, not one for the run: a thread's leftovers stop as soon as it's
+    // decided rather than when the run ends, and fetch adds a listener to its signal for each
+    // request that stays until the request is garbage-collected: with a run's thousands of
+    // requests on one signal, Node 22 warns on stderr past 1,500 listeners.
     const controller = new AbortController();
     try {
       return await cleanThread(api.withSignal(controller.signal), n, options);
