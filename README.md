@@ -188,7 +188,7 @@ script/test-binary.sh dist/gh-notif-clean-darwin-arm64  # the checks CI runs on 
 | `gh-notif-clean` | Entry point `gh` runs for a source install such as `gh extension install .`; starts `src/cli.ts` with Node |
 | `src/rules.ts` | Pure rules: who took part (`participants`), done or kept (`decide`), which checks keep a PR (`checksReason`), which notification reasons `--keep-reason` accepts (`parseReasons`), and the cutoff a `--since` duration sets (`parseSince`) |
 | `src/clean.ts` | Lists notifications, keeps open ones whose reason matches `--keep-reason`, loads each other thread's activity and, with `--keep-failed`, its PR checks, applies the rules, marks threads done |
-| `src/github.ts` | REST client: `gh auth token`, pagination, retries on 429/5xx; sends the token only to the API host's origin |
+| `src/github.ts` | REST client: `gh auth token`, pagination, retries on 429/5xx; sends the token only to the API host's origin. Runs the `gh` that `GH_PATH` names, which gh sets for extensions from 2.101.0, or else the first one in `PATH`, skipping empty and relative entries |
 | `src/cli.ts` | Flags and output |
 | `script/build.sh` | Compiles `src/cli.ts` into the six release binaries in `dist/`, with `.env` and `bunfig.toml` loading switched off |
 | `script/test-binary.sh` | The checks CI and the release workflow run on each binary |

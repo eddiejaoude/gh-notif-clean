@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
-import { createApi, HttpError } from "../src/github.ts";
+import { createApi, findGh, ghAuth, HttpError } from "../src/github.ts";
 
 const json = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), { ...init, headers: { "content-type": "application/json", ...init.headers } });
@@ -135,4 +138,86 @@ test("markDone refuses a thread id that isn't a number without calling fetch", a
   assert.deepEqual(calls, []);
   await api.markDone("123");
   assert.deepEqual(calls, ["https://api.github.com/notifications/threads/123"]);
+});
+
+// findGh's view of the file system: the given files are executable. Records every path it checks.
+function files(...executable: string[]) {
+  const checked: string[] = [];
+  const isExecutable = (file: string) => {
+    checked.push(file);
+    return executable.includes(file);
+  };
+  return { checked, isExecutable };
+}
+
+test("findGh takes the first gh in PATH, skipping empty and relative entries", () => {
+  const fs = files("gh", "bin/gh", "/usr/local/bin/gh", "/usr/bin/gh");
+
+  assert.equal(findGh({ PATH: ":.:bin:/usr/local/bin::/usr/bin:" }, "linux", fs.isExecutable), "/usr/local/bin/gh");
+  assert.deepEqual(fs.checked, ["/usr/local/bin/gh"]);
+});
+
+test("findGh finds nothing when no absolute PATH entry has gh", () => {
+  const fs = files("bin/gh");
+
+  assert.equal(findGh({ PATH: "/usr/bin:bin:/bin" }, "darwin", fs.isExecutable), undefined);
+  assert.deepEqual(fs.checked, ["/usr/bin/gh", "/bin/gh"]);
+  assert.equal(findGh({}, "linux", fs.isExecutable), undefined);
+});
+
+test("findGh prefers an absolute GH_PATH, which gh sets for extensions, to PATH", () => {
+  const fs = files("/usr/bin/gh");
+
+  assert.equal(findGh({ GH_PATH: "/opt/gh/bin/gh", PATH: "/usr/bin" }, "linux", fs.isExecutable), "/opt/gh/bin/gh");
+  assert.equal(
+    findGh({ gh_path: "C:\\Program Files\\GitHub CLI\\gh.exe", PATH: "" }, "win32", fs.isExecutable),
+    "C:\\Program Files\\GitHub CLI\\gh.exe",
+  );
+  assert.deepEqual(fs.checked, []);
+  assert.equal(findGh({ GH_PATH: "bin/gh", PATH: "/usr/bin" }, "linux", fs.isExecutable), "/usr/bin/gh");
+});
+
+test("findGh on Windows tries each PATH entry with each PATHEXT extension in order", () => {
+  const fs = files("C:\\a\\gh.cmd", "C:\\b\\gh.com", "C:\\b\\gh.exe");
+
+  assert.equal(findGh({ PATH: "C:\\a;C:\\b", PATHEXT: ".EXE;;.COM;.CMD" }, "win32", fs.isExecutable), "C:\\a\\gh.cmd");
+  assert.deepEqual(fs.checked, ["C:\\a\\gh.exe", "C:\\a\\gh.com", "C:\\a\\gh.cmd"]);
+  assert.equal(findGh({ PATH: "C:\\b", PATHEXT: ".EXE;.COM" }, "win32", fs.isExecutable), "C:\\b\\gh.exe");
+  assert.equal(findGh({ PATH: "C:\\b", PATHEXT: ".COM;.EXE" }, "win32", fs.isExecutable), "C:\\b\\gh.com");
+});
+
+test("findGh on Windows skips relative entries, unquotes entries and reads Path in any case", () => {
+  const fs = files("gh.exe", "C:gh.exe", "bin\\gh.exe", "C:\\Program Files\\GitHub CLI\\gh.exe");
+
+  assert.equal(
+    findGh({ Path: ';.;C:;bin;"C:\\Program Files\\GitHub CLI"' }, "win32", fs.isExecutable),
+    "C:\\Program Files\\GitHub CLI\\gh.exe",
+  );
+  // Without PATHEXT, Windows' default order: .COM, .EXE, .BAT, .CMD.
+  assert.deepEqual(fs.checked, ["C:\\Program Files\\GitHub CLI\\gh.com", "C:\\Program Files\\GitHub CLI\\gh.exe"]);
+});
+
+test("ghAuth without a gh to run fails as not logged in", () => {
+  assert.throws(() => ghAuth({ GH_HOST: "invalid.invalid", PATH: "" }, "linux"), {
+    message: "gh is not logged in to invalid.invalid; run: gh auth login --hostname invalid.invalid",
+  });
+});
+
+test("ghAuth runs the first gh file in PATH it can execute", { skip: process.platform === "win32" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "gh-notif-clean-"));
+  try {
+    mkdirSync(join(dir, "a", "gh"), { recursive: true });
+    mkdirSync(join(dir, "b"));
+    writeFileSync(join(dir, "b", "gh"), "#!/bin/sh\necho b\n");
+    mkdirSync(join(dir, "c"));
+    writeFileSync(join(dir, "c", "gh"), '#!/bin/sh\necho "$GH_HOST: $*"\n', { mode: 0o755 });
+    const PATH = ["a", "b", "c"].map((name) => join(dir, name)).join(":");
+
+    assert.deepEqual(ghAuth({ GH_HOST: "invalid.invalid", PATH }), {
+      token: "invalid.invalid: auth token --hostname invalid.invalid",
+      baseUrl: "https://invalid.invalid/api/v3",
+    });
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
 });

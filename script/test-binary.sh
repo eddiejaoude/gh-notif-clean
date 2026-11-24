@@ -60,14 +60,14 @@ EOF
 printf 'GH_HOST=hostile.invalid\nGH_NOTIF_CLEAN_IGNORE=hostile-bot\n' >"$hostile/.env"
 
 # run DIR [NAME=VALUE...] BINARY [ARG...]: runs BINARY in DIR with only the stub gh on PATH,
-# without any variable the binary or gh reads apart from those given. Sets status, out, err
-# and calls, the stub's log.
+# without any variable the binary or gh reads apart from those given, GH_PATH included, so
+# the binary finds the stub through PATH. Sets status, out, err and calls, the stub's log.
 run() {
   local dir=$1
   shift
   rm -f "$stubs/calls"
   status=0
-  (cd "$dir" && env -u GH_HOST -u GH_NOTIF_CLEAN_IGNORE -u GH_TOKEN -u GITHUB_TOKEN \
+  (cd "$dir" && env -u GH_HOST -u GH_PATH -u GH_NOTIF_CLEAN_IGNORE -u GH_TOKEN -u GITHUB_TOKEN \
     -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN PATH="$stubs" "$@") \
     >"$work/out" 2>"$work/err" || status=$?
   out=$(<"$work/out")

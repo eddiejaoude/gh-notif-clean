@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { accessSync, constants, statSync } from "node:fs";
+import { posix, win32 } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 export interface Api {
@@ -19,13 +21,66 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * The gh executable to run, as an absolute path: `GH_PATH`, which gh sets to its own path
+ * when it runs an extension, or else the first `gh` in `PATH`. Empty and relative `PATH`
+ * entries are skipped, so the result never depends on the working directory or on the
+ * runtime's own search order. On Windows, variable names match in any case, a quoted entry
+ * is unquoted, and each entry is tried with each `PATHEXT` extension in order.
+ */
+export function findGh(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  isExecutable: (file: string) => boolean,
+): string | undefined {
+  const windows = platform === "win32";
+  const path = windows ? win32 : posix;
+  const read = (name: string) =>
+    windows ? env[Object.keys(env).find((key) => key.toUpperCase() === name) ?? name] : env[name];
+
+  const ghPath = read("GH_PATH");
+  if (ghPath && path.isAbsolute(ghPath)) return ghPath;
+
+  // Windows' own default when PATHEXT is unset.
+  const names = windows
+    ? (read("PATHEXT") || ".COM;.EXE;.BAT;.CMD")
+        .split(";")
+        .filter((ext) => ext !== "")
+        .map((ext) => `gh${ext.toLowerCase()}`)
+    : ["gh"];
+  for (const entry of (read("PATH") ?? "").split(path.delimiter)) {
+    const dir = windows ? entry.replace(/^"(.*)"$/, "$1") : entry;
+    if (!path.isAbsolute(dir)) continue;
+    for (const name of names) {
+      const file = path.join(dir, name);
+      if (isExecutable(file)) return file;
+    }
+  }
+  return undefined;
+}
+
+function isExecutableFile(file: string): boolean {
+  try {
+    accessSync(file, constants.X_OK);
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /** Token and API base URL for the host `gh` is logged in to (`GH_HOST`, default github.com). */
-export function ghAuth(): { token: string; baseUrl: string } {
-  const host = process.env.GH_HOST ?? "github.com";
+export function ghAuth(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): { token: string; baseUrl: string } {
+  const host = env.GH_HOST ?? "github.com";
+  const gh = findGh(env, platform, isExecutableFile);
   let token: string;
   try {
-    token = execFileSync("gh", ["auth", "token", "--hostname", host], {
+    if (gh === undefined) throw new Error("no gh in PATH");
+    token = execFileSync(gh, ["auth", "token", "--hostname", host], {
       encoding: "utf8",
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
   } catch {
