@@ -84,14 +84,14 @@ describe("checksReason (README --keep-failed examples)", () => {
    * list leaves those three out.
    */
   const workflowRuns = [
-    { check_suite_id: 1, workflow_id: 10, event: "pull_request" },
-    { check_suite_id: 2, workflow_id: 10, event: "pull_request" },
-    { check_suite_id: 3, workflow_id: 10, event: "push" },
-    { check_suite_id: 4, workflow_id: 20, event: "pull_request" },
-    { check_suite_id: 5, workflow_id: 10, event: "pull_request" },
-    { check_suite_id: 6, workflow_id: 10, event: "workflow_dispatch" },
-    { check_suite_id: 7, workflow_id: 10, event: "workflow_dispatch" },
-    { check_suite_id: 8, workflow_id: 10, event: "issue_comment" },
+    { check_suite_id: 1, workflow_id: 10, event: "pull_request", path: ".github/workflows/ci.yml" },
+    { check_suite_id: 2, workflow_id: 10, event: "pull_request", path: ".github/workflows/ci.yml" },
+    { check_suite_id: 3, workflow_id: 10, event: "push", path: ".github/workflows/ci.yml" },
+    { check_suite_id: 4, workflow_id: 20, event: "pull_request", path: ".github/workflows/lint.yml" },
+    { check_suite_id: 5, workflow_id: 10, event: "pull_request", path: ".github/workflows/ci.yml" },
+    { check_suite_id: 6, workflow_id: 10, event: "workflow_dispatch", path: ".github/workflows/ci.yml" },
+    { check_suite_id: 7, workflow_id: 10, event: "workflow_dispatch", path: ".github/workflows/ci.yml" },
+    { check_suite_id: 8, workflow_id: 10, event: "issue_comment", path: ".github/workflows/ci.yml" },
   ];
   const gate = "All required checks pass";
   const failure = run(gate, "completed", "failure");
@@ -230,9 +230,9 @@ describe("checksReason (README --keep-failed examples)", () => {
       { name: "commitlint check", status: "completed", conclusion: "failure", started_at: "2026-11-23T17:34:02Z", completed_at: "2026-11-23T17:34:56Z", check_suite: { id: 122392057324 } },
     ];
     const workflows = [
-      { workflow_id: 428028452, event: "pull_request", check_suite_id: 122392092245 },
-      { workflow_id: 428028452, event: "pull_request", check_suite_id: 122392093118 },
-      { workflow_id: 428028452, event: "push", check_suite_id: 122392057324 },
+      { workflow_id: 428028452, event: "pull_request", path: ".github/workflows/continuous-integration.yaml", check_suite_id: 122392092245 },
+      { workflow_id: 428028452, event: "pull_request", path: ".github/workflows/continuous-integration.yaml", check_suite_id: 122392093118 },
+      { workflow_id: 428028452, event: "push", path: ".github/workflows/continuous-integration.yaml", check_suite_id: 122392057324 },
     ];
     assert.equal(checksReason([], runs, workflows), "checks failed: commitlint check");
   });
@@ -355,8 +355,8 @@ describe("checksReason (README --keep-failed examples)", () => {
     for (const failedEvent of [...listed, ...leftOut]) {
       for (const passEvent of [...listed, ...leftOut].filter((event) => event !== failedEvent)) {
         const workflows = [
-          { check_suite_id: 1, workflow_id: 10, event: failedEvent },
-          { check_suite_id: 2, workflow_id: 10, event: passEvent },
+          { check_suite_id: 1, workflow_id: 10, event: failedEvent, path: ".github/workflows/ci.yml" },
+          { check_suite_id: 2, workflow_id: 10, event: passEvent, path: ".github/workflows/ci.yml" },
         ];
         const excused = leftOut.includes(failedEvent) && listed.includes(passEvent);
         assert.equal(checksReason([], runs, workflows), excused ? null : `checks failed: ${gate}`, `${failedEvent} failed, ${passEvent} passed`);
@@ -384,8 +384,8 @@ describe("checksReason (README --keep-failed examples)", () => {
       { name: "diagnostics run 5", status: "completed", conclusion: "cancelled", started_at: "2026-11-23T23:47:36Z", completed_at: "2026-11-24T00:02:10Z", check_suite: { id: 122560397435 } },
     ];
     const workflows = [
-      { workflow_id: 421617442, event: "pull_request", check_suite_id: 122560583971 },
-      { workflow_id: 421617442, event: "workflow_dispatch", check_suite_id: 122560397435 },
+      { workflow_id: 421617442, event: "pull_request", path: ".github/workflows/build1-arm-diagnostics.yml", check_suite_id: 122560583971 },
+      { workflow_id: 421617442, event: "workflow_dispatch", path: ".github/workflows/build1-arm-diagnostics.yml", check_suite_id: 122560397435 },
     ];
     assert.equal(checksReason([], runs, workflows), null);
   });
@@ -403,10 +403,169 @@ describe("checksReason (README --keep-failed examples)", () => {
       { name: "Build (Linux)", status: "completed", conclusion: "skipped", started_at: "2026-11-24T05:33:37Z", completed_at: "2026-11-24T05:33:36Z", check_suite: { id: 122669537975 } },
     ];
     const workflows = [
-      { workflow_id: 238019698, event: "pull_request", check_suite_id: 122669537975 },
-      { workflow_id: 238019698, event: "workflow_dispatch", check_suite_id: 122669514299 },
+      { workflow_id: 238019698, event: "pull_request", path: ".github/workflows/ci-integration.yml", check_suite_id: 122669537975 },
+      { workflow_id: 238019698, event: "workflow_dispatch", path: ".github/workflows/ci-integration.yml", check_suite_id: 122669514299 },
     ];
     assert.equal(checksReason([], runs, workflows), "checks failed: Integration Tests (Linux), Integration Tests Shard 7 (Linux)");
+  });
+
+  /** A `dynamic` workflow run, one of GitHub's own workflows, in check suite `suite`. */
+  const dynamic = (suite: number, path: string) => ({ check_suite_id: suite, workflow_id: suite * 10, event: "dynamic", path });
+  /**
+   * A job of each of GitHub's own workflows that the PR's check list leaves out, as sampled: Copilot's code review,
+   * GitHub Advanced Security's AI findings, Copilot's cloud agent, Dependabot's updates, two dependency graph builds,
+   * the Claude and Codex cloud agents, three jobs of the workflow Copilot's code review ran until May 2026, and the
+   * three Codespaces prebuild workflows. Job `i` is in suite `20 + i`, which `leftOutRuns` gives the workflow's path.
+   */
+  const leftOutJobs = [
+    ["copilot-pull-request-reviewer", "dynamic/agents/copilot-pull-request-reviewer"],
+    ["github-advanced-security", "dynamic/agents/github-advanced-security"],
+    ["copilot", "dynamic/copilot-swe-agent/copilot"],
+    ["Dependabot", "dynamic/dependabot/dependabot-updates"],
+    ["update-pip-graph", "dynamic/dependabot/update-graph"],
+    ["update-go_modules-graph", "dynamic/dependabot/update-graph"],
+    ["claude", "dynamic/agents/anthropic-code-agent"],
+    ["codex", "dynamic/agents/openai-code-agent"],
+    ["Agent", "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer"],
+    ["Cleanup artifacts", "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer"],
+    ["CodeQL analysis (go)", "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer"],
+    ["prebuild", "dynamic/codespaces/create_codespaces_prebuilds"],
+    ["prebuild", "dynamic/codespaces/create_codespaces_prebuilds_development"],
+    ["prebuild", "dynamic/codespaces/create_codespaces_prebuilds_ppe"],
+  ] as const;
+  const leftOutRuns = leftOutJobs.map(([, path], i) => dynamic(20 + i, path));
+
+  test("a job of GitHub's own workflows that the check list leaves out doesn't keep the thread, whatever its result", () => {
+    leftOutJobs.forEach(([job], i) => {
+      for (const [status, conclusion] of [
+        ["completed", "failure"],
+        ["completed", "timed_out"],
+        ["completed", "action_required"],
+        ["completed", "cancelled"],
+        ["in_progress", null],
+        ["queued", null],
+      ] as const) {
+        const runs = [run(job, status, conclusion, 1800, 0, 20 + i)];
+        const label = `${job}, ${conclusion ?? status}`;
+        assert.equal(checksReason([], runs, leftOutRuns), null, label);
+        assert.notEqual(checksReason([], runs, []), null, `${label}, without its workflow run`);
+      }
+    });
+  });
+
+  test("Copilot reviewing the PR doesn't keep the thread", () => {
+    const reviewing = run("copilot-pull-request-reviewer", "in_progress", null, 60, 0, 20);
+    const passed = [{ context: "Vercel", state: "success" }];
+    assert.equal(checksReason(passed, [reviewing, run("test", "completed", "success")], [...workflowRuns, ...leftOutRuns]), null);
+  });
+
+  test("a failed Dependabot update job on a PR from the default branch doesn't keep the thread", () => {
+    const update = run("Dependabot", "completed", "failure", 300, 0, 23);
+    const passed = [{ context: "Vercel", state: "success" }];
+    assert.equal(checksReason(passed, [update, run("test", "completed", "success")], [...workflowRuns, ...leftOutRuns]), null);
+  });
+
+  test("Copilot's PR whose cloud agent job was cancelled 22 s in doesn't keep the thread (real payload)", () => {
+    // An open PR that Copilot's cloud agent opened ten weeks earlier, which GitHub shows with no checks: the agent's
+    // job is its head commit's only check run, and the commit's other workflow run, a `pull_request` run that failed,
+    // has no jobs. Fields trimmed to those read.
+    const runs = [
+      { name: "copilot", status: "completed", conclusion: "cancelled", started_at: "2026-09-16T00:09:29Z", completed_at: "2026-09-16T00:09:51Z", check_suite: { id: 94888567577 } },
+    ];
+    const workflows = [
+      { workflow_id: 335335940, event: "pull_request", path: ".github/workflows/firebase-hosting-pull-request.yml", check_suite_id: 94888573084 },
+      { workflow_id: 335862696, event: "dynamic", path: "dynamic/copilot-swe-agent/copilot", check_suite_id: 94888567577 },
+    ];
+    assert.equal(needsWorkflowRuns(runs), true);
+    assert.equal(checksReason([], runs, workflows), null);
+    // Without its workflow runs, nothing shows that the job is the agent's, so it's kept as before.
+    assert.equal(checksReason([], runs, []), "checks cancelled: copilot");
+  });
+
+  test("Codex's PR whose agent job failed doesn't keep the thread (real payload)", () => {
+    // An open PR that the Codex cloud agent opened, which GitHub shows with no checks: the agent's job is its head
+    // commit's only check run, and its `pull_request` run waits for approval with no jobs. Fields trimmed to those read.
+    const runs = [
+      { name: "codex", status: "completed", conclusion: "failure", started_at: "2026-11-21T00:26:16Z", completed_at: "2026-11-21T00:31:43Z", check_suite: { id: 121376385623 } },
+    ];
+    const workflows = [
+      { workflow_id: 422174901, event: "pull_request", path: ".github/workflows/ci.yml", check_suite_id: 121376391469 },
+      { workflow_id: 425502401, event: "dynamic", path: "dynamic/agents/openai-code-agent", check_suite_id: 121376385623 },
+    ];
+    assert.equal(needsWorkflowRuns(runs), true);
+    assert.equal(checksReason([], runs, workflows), null);
+    assert.equal(checksReason([], runs, []), "checks failed: codex");
+  });
+
+  test("a PR that Copilot reviewed before May 2026, whose review run failed to clean up, doesn't keep the thread (real payload)", () => {
+    // An open PR that GitHub shows with no checks: its head commit's only check runs are the six jobs of the workflow
+    // that Copilot's code review ran then. Fields trimmed to those read.
+    const suite = { id: 54268968288 };
+    const runs = [
+      { name: "Cleanup artifacts", status: "completed", conclusion: "failure", started_at: "2026-01-13T15:53:44Z", completed_at: "2026-01-13T15:53:50Z", check_suite: suite },
+      { name: "Upload results", status: "completed", conclusion: "success", started_at: "2026-01-13T15:53:29Z", completed_at: "2026-01-13T15:53:41Z", check_suite: suite },
+      { name: "CodeQL analysis (go)", status: "completed", conclusion: "success", started_at: "2026-01-13T15:50:18Z", completed_at: "2026-01-13T15:51:08Z", check_suite: suite },
+      { name: "Agent", status: "completed", conclusion: "success", started_at: "2026-01-13T15:50:19Z", completed_at: "2026-01-13T15:53:26Z", check_suite: suite },
+      { name: "Autovalidate", status: "completed", conclusion: "skipped", started_at: "2026-01-13T15:50:09Z", completed_at: "2026-01-13T15:50:09Z", check_suite: suite },
+      { name: "Prepare", status: "completed", conclusion: "success", started_at: "2026-01-13T15:50:12Z", completed_at: "2026-01-13T15:50:16Z", check_suite: suite },
+    ];
+    const workflows = [
+      { workflow_id: 223038474, event: "dynamic", path: "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer", check_suite_id: 54268968288 },
+    ];
+    assert.equal(needsWorkflowRuns(runs), true);
+    assert.equal(checksReason([], runs, workflows), null);
+    assert.equal(checksReason([], runs, []), "checks failed: Cleanup artifacts");
+  });
+
+  test("a job of GitHub's own workflows that the check list includes keeps the thread, such as a failed CodeQL default setup analysis", () => {
+    const listed = [
+      dynamic(30, "dynamic/github-code-scanning/codeql"),
+      dynamic(31, "dynamic/github-code-quality/codeql"),
+      dynamic(32, "dynamic/pages/pages-build-deployment"),
+      dynamic(33, "dynamic/dependency-graph/auto-submission"),
+    ];
+    for (const [job, label, reason] of [
+      [run("Analyze (javascript-typescript)", "completed", "failure", 120, 0, 30), "CodeQL default setup", "checks failed: Analyze (javascript-typescript)"],
+      [run("Analyze (python)", "in_progress", null, 60, 0, 31), "CodeQL code quality", "checks pending: Analyze (python)"],
+      [run("deploy", "completed", "cancelled", 600, 0, 32), "Pages build", "checks cancelled: deploy"],
+      [run("submit-maven", "completed", "failure", 60, 0, 33), "dependency submission", "checks failed: submit-maven"],
+    ] as const) {
+      assert.equal(checksReason([], [job], listed), reason, label);
+    }
+  });
+
+  test("a job of a `dynamic` workflow not known to be left out keeps the thread, even with a left-out job's name", () => {
+    const unknown = [dynamic(40, "dynamic/agents/new-agent"), dynamic(41, "dynamic/copilot-swe-agent/copilot-next")];
+    assert.equal(checksReason([], [run("new-agent", "completed", "failure", 60, 0, 40)], unknown), "checks failed: new-agent");
+    assert.equal(checksReason([], [run("copilot", "completed", "cancelled", 22, 0, 41)], unknown), "checks cancelled: copilot");
+  });
+
+  test("a check run with a left-out job's name keeps the thread unless its workflow run is that job's workflow", () => {
+    const own = { check_suite_id: 50, workflow_id: 500, event: "pull_request", path: ".github/workflows/dependabot.yml" };
+    const dependabot = run("Dependabot", "completed", "failure");
+    for (const [runs, workflows, label] of [
+      [[{ ...dependabot, check_suite: { id: 50 } }], [own], "a job of the PR's own workflow"],
+      [[{ ...dependabot, check_suite: { id: 22 } }], leftOutRuns, "in the cloud agent's workflow run"],
+      [[{ ...dependabot, check_suite: { id: 99 } }], leftOutRuns, "its workflow run not listed"],
+      [[{ ...dependabot, check_suite: null }], leftOutRuns, "outside a check suite"],
+      [[{ ...dependabot, check_suite: { id: 23 } }], [], "no workflow runs"],
+    ] as const) {
+      assert.equal(checksReason([], runs, workflows), "checks failed: Dependabot", label);
+    }
+  });
+
+  test("a check run that a workflow created in a left-out workflow's check suite keeps the thread", () => {
+    // Check runs created through the API, such as a deploy preview, can land in any of the commit's Actions suites.
+    assert.equal(checksReason([], [run("Deploy Preview", "completed", "failure", 60, 0, 20)], leftOutRuns), "checks failed: Deploy Preview");
+  });
+
+  test("left-out jobs are dropped from the reason the PR's other checks give", () => {
+    const reviewing = run("copilot-pull-request-reviewer", "in_progress", null, 60, 0, 20);
+    const update = run("Dependabot", "completed", "failure", 60, 0, 23);
+    const all = [...workflowRuns, ...leftOutRuns];
+    assert.equal(checksReason([], [reviewing, update, run("test", "completed", "failure")], all), "checks failed: test");
+    // The review still running doesn't make the checks pending: the cancelled deploy is the reason.
+    assert.equal(checksReason([], [reviewing, update, timedOut], all), "checks cancelled: deploy");
   });
 
   test("passed, neutral and skipped checks, or none, don't keep the thread", () => {
@@ -427,7 +586,7 @@ describe("needsWorkflowRuns", () => {
     check_suite: { id: suite },
   });
 
-  test("only a failed run, or one cancelled after it started, with a same-named pass in another check suite needs them", () => {
+  test("a failed run, or one cancelled after it started, needs them when the job passed in another check suite", () => {
     const neverRan = { ...at("cancelled", 0), completed_at: at("cancelled", 0).started_at };
     assert.equal(needsWorkflowRuns([at("failure", 0), at("success", 3600, 2)]), true);
     assert.equal(needsWorkflowRuns([at("timed_out", 0), at("success", 3600, 2)]), true);
@@ -443,6 +602,74 @@ describe("needsWorkflowRuns", () => {
     assert.equal(needsWorkflowRuns([at("failure", 0), at("success", 3600, 2, "lint")]), false, "other name");
     assert.equal(needsWorkflowRuns([neverRan, at("success", 3600, 2)]), false, "cancelled before it started");
     assert.equal(needsWorkflowRuns([at("success", 0), at("success", 3600, 2)]), false, "nothing failed");
+  });
+
+  test("a failed or unfinished run, or one cancelled after it started, needs them when it has the name of a job GitHub leaves out", () => {
+    for (const name of [
+      "copilot-pull-request-reviewer",
+      "github-advanced-security",
+      "copilot",
+      "Dependabot",
+      "update-pip-graph",
+      "update-go_modules-graph",
+      "claude",
+      "codex",
+      "Prepare",
+      "Agent",
+      "Upload results",
+      "Cleanup artifacts",
+      "Autovalidate",
+      "CodeQL analysis",
+      "CodeQL analysis (go)",
+      "prebuild",
+    ]) {
+      assert.equal(needsWorkflowRuns([at("failure", 0, 1, name)]), true, `${name} failed`);
+      assert.equal(needsWorkflowRuns([at("timed_out", 0, 1, name)]), true, `${name} timed out`);
+      assert.equal(needsWorkflowRuns([at("cancelled", 0, 1, name)]), true, `${name} cancelled after it started`);
+      assert.equal(needsWorkflowRuns([{ ...at("success", 0, 1, name), status: "in_progress", conclusion: null, completed_at: null }]), true, `${name} unfinished`);
+      for (const conclusion of ["success", "skipped", "neutral"]) {
+        assert.equal(needsWorkflowRuns([at(conclusion, 0, 1, name)]), false, `${name} ${conclusion}`);
+      }
+      assert.equal(needsWorkflowRuns([{ ...at("cancelled", 0, 1, name), completed_at: at("cancelled", 0).started_at }]), false, `${name} cancelled before it started`);
+    }
+    // Names that only look like those jobs, such as one with a word before or after it or in another case, and a job
+    // of a `dynamic` workflow that GitHub lists.
+    for (const name of [
+      "Copilot",
+      "github-copilot",
+      "copilot-setup-steps",
+      "copilot-pull-request-reviewer-2",
+      "my-copilot-pull-request-reviewer",
+      "github-advanced-security-scan",
+      "pre-github-advanced-security",
+      "dependabot",
+      "Dependabot auto-merge",
+      "Auto-merge Dependabot",
+      "update-graph",
+      "pre-update-pip-graph",
+      "update-pip-graph-2",
+      "claude-review",
+      "run-claude",
+      "Claude",
+      "codex-review",
+      "run-codex",
+      "Prepare release",
+      "Pre-Prepare",
+      "CodeQL analysis go",
+      "prebuild (linux)",
+      "npm prebuild",
+      "prepare",
+      "agent",
+      "CodeQL Analysis (rust)",
+      "Codex",
+      "Prebuild",
+      "Copilot-Pull-Request-Reviewer",
+      "GitHub-Advanced-Security",
+      "Update-pip-graph",
+      "Analyze (actions)",
+    ]) {
+      assert.equal(needsWorkflowRuns([at("failure", 0, 1, name)]), false, name);
+    }
   });
 });
 

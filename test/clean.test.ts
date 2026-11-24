@@ -332,8 +332,8 @@ describe("--keep-failed", () => {
           [runsPath("sha11")]: {
             total_count: 2,
             workflow_runs: [
-              { check_suite_id: 1, workflow_id: 10, event: "pull_request" },
-              { check_suite_id: 2, workflow_id: 10, event: "pull_request" },
+              { check_suite_id: 1, workflow_id: 10, event: "pull_request", path: ".github/workflows/ci.yml" },
+              { check_suite_id: 2, workflow_id: 10, event: "pull_request", path: ".github/workflows/ci.yml" },
             ],
           },
         });
@@ -383,8 +383,8 @@ describe("--keep-failed", () => {
         [runsPath("sha13")]: {
           total_count: 2,
           workflow_runs: [
-            { check_suite_id: 1, workflow_id: 10, event: "workflow_dispatch" },
-            { check_suite_id: 2, workflow_id: 10, event: "pull_request" },
+            { check_suite_id: 1, workflow_id: 10, event: "workflow_dispatch", path: ".github/workflows/ci.yml" },
+            { check_suite_id: 2, workflow_id: 10, event: "pull_request", path: ".github/workflows/ci.yml" },
           ],
         },
       });
@@ -393,6 +393,87 @@ describe("--keep-failed", () => {
       assert.equal(results[1]?.reason, "checks failed: test");
       assert.ok(requested.includes(runsPath("sha13")), "workflow runs not fetched for a pass that started first");
       assert.ok(!requested.includes(runsPath("sha14")), "workflow runs fetched for a PR with no pass of the job");
+    });
+  });
+
+  describe("a job of one of GitHub's own workflows that the PR's check list leaves out", () => {
+    const runsPath = (sha: string) => `${API}/me/app/actions/runs?head_sha=${sha}`;
+    /** A check run in check suite `suite` that started at 10:00 and, once completed, ran for five minutes. */
+    const job = (name: string, suite: number, conclusion: string | null = "failure") => ({
+      name,
+      status: conclusion ? "completed" : "in_progress",
+      conclusion,
+      started_at: "2026-11-23T10:00:00Z",
+      completed_at: conclusion ? "2026-11-23T10:05:00Z" : null,
+      check_suite: { id: suite },
+    });
+    /** The `actions/runs` response for workflow runs given as [check suite, event, path]. */
+    const runsList = (...runs: [suite: number, event: string, path: string][]) => ({
+      total_count: runs.length,
+      workflow_runs: runs.map(([suite, event, path]) => ({ check_suite_id: suite, workflow_id: suite * 10, event, path })),
+    });
+    // PR 15 is Copilot's, and its head commit's only check run is the cloud agent's job, cancelled 22 s in, as GitHub
+    // returned them (fields trimmed to those read). PR 16 is yours, with Copilot's review still running. PRs 17 to 19
+    // are Dependabot's: CodeQL default setup failed a job, the repository's own `dependabot.yml` workflow failed a job
+    // named `Dependabot`, and a `dynamic` workflow not known to be left out had a job named `copilot` cancelled.
+    const inbox = [15, 16, 17, 18, 19].map((n) => thread(String(n), "me/app", "PullRequest", `${API}/me/app/pulls/${n}`));
+    const responses = {
+      ...pr("me/app", 15, "Copilot", []),
+      ...pr("me/app", 16, "octocat", [{ event: "commented", actor: { login: "vercel[bot]" } }]),
+      ...pr("me/app", 17, "dependabot[bot]", []),
+      ...pr("me/app", 18, "dependabot[bot]", []),
+      ...pr("me/app", 19, "dependabot[bot]", []),
+      ...checks("me/app", "sha15", [], [
+        { name: "copilot", status: "completed", conclusion: "cancelled", started_at: "2026-09-16T00:09:29Z", completed_at: "2026-09-16T00:09:51Z", check_suite: { id: 94888567577 } },
+      ]),
+      ...checks("me/app", "sha16", [{ context: "Vercel", state: "success" }], [job("copilot-pull-request-reviewer", 1, null), job("test", 2, "success")]),
+      ...checks("me/app", "sha17", [], [job("Analyze (actions)", 1)]),
+      ...checks("me/app", "sha18", [], [job("Dependabot", 1)]),
+      ...checks("me/app", "sha19", [], [job("copilot", 1, "cancelled")]),
+    };
+    const listed = {
+      [runsPath("sha15")]: {
+        total_count: 2,
+        workflow_runs: [
+          { check_suite_id: 94888573084, workflow_id: 335335940, event: "pull_request", path: ".github/workflows/firebase-hosting-pull-request.yml" },
+          { check_suite_id: 94888567577, workflow_id: 335862696, event: "dynamic", path: "dynamic/copilot-swe-agent/copilot" },
+        ],
+      },
+      [runsPath("sha16")]: runsList([1, "dynamic", "dynamic/agents/copilot-pull-request-reviewer"], [2, "pull_request", ".github/workflows/ci.yml"]),
+      [runsPath("sha17")]: runsList([1, "dynamic", "dynamic/github-code-scanning/codeql"]),
+      [runsPath("sha18")]: runsList([1, "pull_request", ".github/workflows/dependabot.yml"]),
+      [runsPath("sha19")]: runsList([1, "dynamic", "dynamic/agents/new-agent"]),
+    };
+    const ignored = new Set([...DEFAULT_IGNORED, "copilot"]);
+
+    test("doesn't keep the PR once the workflow runs show it, while other dynamic runs and namesakes still do", async () => {
+      const { api, marked, requested } = fakeApi(inbox, { ...responses, ...listed });
+      const results = await clean(api, options({ keepFailed: true, ignored }));
+      assert.deepEqual(marked.sort(), ["15", "16"]);
+      assert.deepEqual(
+        results.map((r) => [r.id, r.outcome, r.reason]),
+        [
+          ["15", "done", undefined],
+          ["16", "done", undefined],
+          ["17", "kept", "checks failed: Analyze (actions)"],
+          ["18", "kept", "checks failed: Dependabot"],
+          ["19", "kept", "checks cancelled: copilot"],
+        ],
+      );
+      // CodeQL's job doesn't have the name of a job GitHub leaves out, so its PR costs no request for them.
+      assert.deepEqual(requested.filter((p) => p.includes("/actions/runs")).sort(), [
+        runsPath("sha15"),
+        runsPath("sha16"),
+        runsPath("sha18"),
+        runsPath("sha19"),
+      ]);
+    });
+
+    test("keeps the PR for the agent's job when the workflow runs can't be fetched", async () => {
+      const { api, marked } = fakeApi([inbox[0]!], responses);
+      const [result] = await clean(api, options({ keepFailed: true, ignored }));
+      assert.deepEqual(marked, []);
+      assert.equal(result?.reason, "checks cancelled: copilot");
     });
   });
 });
