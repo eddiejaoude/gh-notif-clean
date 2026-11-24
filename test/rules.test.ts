@@ -413,8 +413,9 @@ describe("checksReason (README --keep-failed examples)", () => {
   const dynamic = (suite: number, path: string) => ({ check_suite_id: suite, workflow_id: suite * 10, event: "dynamic", path });
   /**
    * A job of each of GitHub's own workflows that the PR's check list leaves out, as sampled: Copilot's code review,
-   * GitHub Advanced Security's AI findings, Copilot's cloud agent, Dependabot's updates and two dependency graph
-   * builds. Job `i` is in suite `20 + i`, which `leftOutRuns` gives the workflow's path.
+   * GitHub Advanced Security's AI findings, Copilot's cloud agent, Dependabot's updates, two dependency graph builds,
+   * the Claude and Codex cloud agents, and three jobs of the workflow Copilot's code review ran until May 2026. Job `i`
+   * is in suite `20 + i`, which `leftOutRuns` gives the workflow's path.
    */
   const leftOutJobs = [
     ["copilot-pull-request-reviewer", "dynamic/agents/copilot-pull-request-reviewer"],
@@ -423,6 +424,11 @@ describe("checksReason (README --keep-failed examples)", () => {
     ["Dependabot", "dynamic/dependabot/dependabot-updates"],
     ["update-pip-graph", "dynamic/dependabot/update-graph"],
     ["update-go_modules-graph", "dynamic/dependabot/update-graph"],
+    ["claude", "dynamic/agents/anthropic-code-agent"],
+    ["codex", "dynamic/agents/openai-code-agent"],
+    ["Agent", "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer"],
+    ["Cleanup artifacts", "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer"],
+    ["CodeQL analysis (go)", "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer"],
   ] as const;
   const leftOutRuns = leftOutJobs.map(([, path], i) => dynamic(20 + i, path));
 
@@ -471,6 +477,41 @@ describe("checksReason (README --keep-failed examples)", () => {
     assert.equal(checksReason([], runs, workflows), null);
     // Without its workflow runs, nothing shows that the job is the agent's, so it's kept as before.
     assert.equal(checksReason([], runs, []), "checks cancelled: copilot");
+  });
+
+  test("Codex's PR whose agent job failed doesn't keep the thread (real payload)", () => {
+    // An open PR that the Codex cloud agent opened, which GitHub shows with no checks: the agent's job is its head
+    // commit's only check run, and its `pull_request` run waits for approval with no jobs. Fields trimmed to those read.
+    const runs = [
+      { name: "codex", status: "completed", conclusion: "failure", started_at: "2026-11-21T00:26:16Z", completed_at: "2026-11-21T00:31:43Z", check_suite: { id: 121376385623 } },
+    ];
+    const workflows = [
+      { workflow_id: 422174901, event: "pull_request", path: ".github/workflows/ci.yml", check_suite_id: 121376391469 },
+      { workflow_id: 425502401, event: "dynamic", path: "dynamic/agents/openai-code-agent", check_suite_id: 121376385623 },
+    ];
+    assert.equal(needsWorkflowRuns(runs), true);
+    assert.equal(checksReason([], runs, workflows), null);
+    assert.equal(checksReason([], runs, []), "checks failed: codex");
+  });
+
+  test("a PR that Copilot reviewed before May 2026, whose review run failed to clean up, doesn't keep the thread (real payload)", () => {
+    // An open PR that GitHub shows with no checks: its head commit's only check runs are the six jobs of the workflow
+    // that Copilot's code review ran then. Fields trimmed to those read.
+    const suite = { id: 54268968288 };
+    const runs = [
+      { name: "Cleanup artifacts", status: "completed", conclusion: "failure", started_at: "2026-01-13T15:53:44Z", completed_at: "2026-01-13T15:53:50Z", check_suite: suite },
+      { name: "Upload results", status: "completed", conclusion: "success", started_at: "2026-01-13T15:53:29Z", completed_at: "2026-01-13T15:53:41Z", check_suite: suite },
+      { name: "CodeQL analysis (go)", status: "completed", conclusion: "success", started_at: "2026-01-13T15:50:18Z", completed_at: "2026-01-13T15:51:08Z", check_suite: suite },
+      { name: "Agent", status: "completed", conclusion: "success", started_at: "2026-01-13T15:50:19Z", completed_at: "2026-01-13T15:53:26Z", check_suite: suite },
+      { name: "Autovalidate", status: "completed", conclusion: "skipped", started_at: "2026-01-13T15:50:09Z", completed_at: "2026-01-13T15:50:09Z", check_suite: suite },
+      { name: "Prepare", status: "completed", conclusion: "success", started_at: "2026-01-13T15:50:12Z", completed_at: "2026-01-13T15:50:16Z", check_suite: suite },
+    ];
+    const workflows = [
+      { workflow_id: 223038474, event: "dynamic", path: "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer", check_suite_id: 54268968288 },
+    ];
+    assert.equal(needsWorkflowRuns(runs), true);
+    assert.equal(checksReason([], runs, workflows), null);
+    assert.equal(checksReason([], runs, []), "checks failed: Cleanup artifacts");
   });
 
   test("a job of GitHub's own workflows that the check list includes keeps the thread, such as a failed CodeQL default setup analysis", () => {
@@ -561,7 +602,23 @@ describe("needsWorkflowRuns", () => {
   });
 
   test("a failed or unfinished run, or one cancelled after it started, needs them when it has the name of a job GitHub leaves out", () => {
-    for (const name of ["copilot-pull-request-reviewer", "github-advanced-security", "copilot", "Dependabot", "update-pip-graph", "update-go_modules-graph"]) {
+    for (const name of [
+      "copilot-pull-request-reviewer",
+      "github-advanced-security",
+      "copilot",
+      "Dependabot",
+      "update-pip-graph",
+      "update-go_modules-graph",
+      "claude",
+      "codex",
+      "Prepare",
+      "Agent",
+      "Upload results",
+      "Cleanup artifacts",
+      "Autovalidate",
+      "CodeQL analysis",
+      "CodeQL analysis (go)",
+    ]) {
       assert.equal(needsWorkflowRuns([at("failure", 0, 1, name)]), true, `${name} failed`);
       assert.equal(needsWorkflowRuns([at("timed_out", 0, 1, name)]), true, `${name} timed out`);
       assert.equal(needsWorkflowRuns([at("cancelled", 0, 1, name)]), true, `${name} cancelled after it started`);

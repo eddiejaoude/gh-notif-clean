@@ -175,10 +175,15 @@ const CHECK_LIST_EVENTS: Record<string, true> = {
 const LEFT_OUT_DYNAMIC: Record<string, RegExp> = {
   // Copilot code review.
   "dynamic/agents/copilot-pull-request-reviewer": /^copilot-pull-request-reviewer$/,
+  // Copilot code review until May 2026, when it moved to the workflow above. Its runs stay on commits not pushed since.
+  "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer": /^(Prepare|Agent|Upload results|Cleanup artifacts|Autovalidate|CodeQL analysis( \(.+\))?)$/,
   // GitHub Advanced Security's AI code scanning findings on a PR.
   "dynamic/agents/github-advanced-security": /^github-advanced-security$/,
   // Copilot cloud agent.
   "dynamic/copilot-swe-agent/copilot": /^copilot$/,
+  // The Claude and OpenAI Codex cloud agents.
+  "dynamic/agents/anthropic-code-agent": /^claude$/,
+  "dynamic/agents/openai-code-agent": /^codex$/,
   // Dependabot's version and security updates.
   "dynamic/dependabot/dependabot-updates": /^Dependabot$/,
   // Dependabot's dependency graph builds: one job per ecosystem, such as `update-pip-graph`.
