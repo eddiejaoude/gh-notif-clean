@@ -51,7 +51,7 @@ gh notif-clean --json -n | jq '.threads[] | select(.outcome == "kept")'
 
 It exits with `0` on success, `1` if marking any thread done failed, and `2` for invalid flags.
 
-To always ignore extra bots, set `GH_NOTIF_CLEAN_IGNORE` to a list of logins separated by commas or whitespace, for example in your shell profile or CI. Each entry works like `--ignore`: whitespace around entries is trimmed, empty entries are skipped, and `--no-default-bots` still drops only the built-in defaults.
+To always ignore extra bots, set `GH_NOTIF_CLEAN_IGNORE` to a list of logins separated by commas or whitespace, for example in your shell profile or CI. Empty entries are skipped, and each remaining entry works like an `--ignore` value: `--no-default-bots` still drops only the built-in defaults.
 
 ```sh
 export GH_NOTIF_CLEAN_IGNORE='cla-assistant[bot],github-actions[bot]'
