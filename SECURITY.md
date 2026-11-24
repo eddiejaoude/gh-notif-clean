@@ -29,7 +29,7 @@ In scope: the code in this repository, including:
 
 Out of scope:
 
-- Vulnerabilities in GitHub, the GitHub CLI, or Node.js. Report them to those projects.
+- Vulnerabilities in GitHub, the GitHub CLI, Node.js, or Bun, which the release binaries are built with. Report them to those projects.
 - A dependency with no path to exploit it through this extension. The extension has no runtime dependencies; `typescript` and `@types/node` are used only for development.
 - Findings that need an already compromised machine or a modified copy of the extension.
 

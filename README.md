@@ -11,7 +11,7 @@ Ignored by default: `vercel[bot]`, `dependabot[bot]`, `dependabot-preview[bot]`,
 ## Requirements
 
 - [GitHub CLI](https://cli.github.com/) 2.0 or later, logged in (`gh auth login`)
-- Node.js 22.18 or later. The extension is TypeScript that Node runs directly, so there's no build step.
+- Nothing else on macOS, Windows, or Linux with glibc, on x64 or arm64: every release after v0.1.0 has a standalone binary for each, so Windows needs neither Git Bash nor WSL. Other systems need Node.js 22.18 or later, to [run it from source](#run-from-source).
 
 ## Install
 
@@ -19,6 +19,29 @@ Ignored by default: `vercel[bot]`, `dependabot[bot]`, `dependabot-preview[bot]`,
 gh extension install eddiejaoude/gh-notif-clean
 gh extension upgrade notif-clean   # later, to update
 ```
+
+`gh` installs the binary for your system: `darwin-arm64`, `darwin-amd64`, `linux-arm64`, `linux-amd64`, `windows-arm64` or `windows-amd64`. GitHub Actions builds them from the release's tag and attests each one, so `gh attestation verify <file> -R eddiejaoude/gh-notif-clean` shows where a binary came from.
+
+The binary sends its requests through the proxy in `HTTPS_PROXY`, `HTTP_PROXY` or `ALL_PROXY`, in upper or lower case, except to hosts listed in `NO_PROXY`. Run from source, Node uses a proxy only with `NODE_USE_ENV_PROXY=1` (Node 22.21 or later), and never reads `ALL_PROXY`.
+
+### Upgrading from v0.1.0
+
+v0.1.0 is a script that `gh` runs with Node. `gh extension upgrade notif-clean` replaces it with the binary, and `gh extension list` then shows the release's tag where it showed a commit. On a system without a working binary, [run it from source](#run-from-source) instead: there the upgrade removes the script, then fails, leaving nothing installed.
+
+`gh extension install eddiejaoude/gh-notif-clean --pin v0.1.0` stops working once the latest release has binaries, as v0.1.0 has none. To stay on v0.1.0, run it from source and `git checkout v0.1.0` before `gh extension install .`.
+
+### Run from source
+
+There's no binary for other systems, such as FreeBSD or 32-bit ones, and the Linux binaries don't start on Alpine Linux or other systems that use musl instead of glibc. There, run the extension from source with Node.js 22.18 or later:
+
+```sh
+gh extension remove notif-clean   # if it's installed
+git clone https://github.com/eddiejaoude/gh-notif-clean
+cd gh-notif-clean
+gh extension install .            # gh runs the gh-notif-clean script, which starts Node
+```
+
+`gh extension install .` links the folder, so `git pull` updates it; `gh extension upgrade` doesn't.
 
 ## Use
 
@@ -149,13 +172,27 @@ npm run typecheck
 npm test           # node:test, no network access
 ```
 
+`gh extension install .` in your clone runs your working copy, from source with Node.
+
+The release binaries are compiled with [Bun](https://bun.sh), at the version in `.bun-version`. To build and check them yourself, install that version of Bun, then:
+
+```sh
+script/build.sh                                         # the six binaries, into dist/
+script/test-binary.sh dist/gh-notif-clean-darwin-arm64  # the checks CI runs on each binary, on yours
+```
+
+`script/test-binary.sh` never reaches GitHub or uses your login: it runs the binary with nothing but a stub `gh` on `PATH`, logged in only to the unresolvable host `invalid.invalid`, and in a directory whose `bunfig.toml` and `.env` must take no effect. Checking a Windows binary needs Bun as well, to compile the stub `gh.exe`. Dependabot doesn't update `.bun-version`: change it deliberately, and CI builds and checks the binaries with the new version.
+
 | Path | Contents |
 |---|---|
-| `gh-notif-clean` | Entry point `gh` runs; starts `src/cli.ts` with Node |
+| `gh-notif-clean` | Entry point `gh` runs for a source install such as `gh extension install .`; starts `src/cli.ts` with Node |
 | `src/rules.ts` | Pure rules: who took part (`participants`), done or kept (`decide`), which checks keep a PR (`checksReason`), which notification reasons `--keep-reason` accepts (`parseReasons`), and the cutoff a `--since` duration sets (`parseSince`) |
 | `src/clean.ts` | Lists notifications, keeps open ones whose reason matches `--keep-reason`, loads each other thread's activity and, with `--keep-failed`, its PR checks, applies the rules, marks threads done |
 | `src/github.ts` | REST client: `gh auth token`, pagination, retries on 429/5xx; sends the token only to the API host's origin |
 | `src/cli.ts` | Flags and output |
+| `script/build.sh` | Compiles `src/cli.ts` into the six release binaries in `dist/`, with `.env` and `bunfig.toml` loading switched off |
+| `script/test-binary.sh` | The checks CI and the release workflow run on each binary |
+| `.github/workflows/release.yml` | On a `v*` tag: builds, publishes and attests the binaries, then checks each on its own OS and architecture |
 
 ## Contributing
 

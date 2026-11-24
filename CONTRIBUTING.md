@@ -40,8 +40,11 @@ npm test
 
 The tests never touch the network: `src/rules.ts` is pure, and `src/clean.ts` and `src/github.ts` take their API and `fetch` as parameters, so tests pass in fakes. Keep it that way.
 
+CI also compiles the release binaries with Bun and runs `script/test-binary.sh` on each one, on a runner of its own OS and architecture. The binaries run `src/` on Bun, not the Node that `npm test` runs on.
+
 - **Changing which threads are marked done?** Update the "How it decides" section and examples table in the README, and add or change the matching case in `test/rules.test.ts`. Every row in that table is a test.
 - **Adding a flag?** Update `--help` in `src/cli.ts` and the flags table in the README.
+- **Changing `script/`, `.bun-version` or the workflows, or using a Node API the code doesn't use yet?** Build a binary and check it with `script/test-binary.sh`, as the README's [Development](README.md#development) section describes. Bun implements most of Node's APIs, not all of them.
 
 ## Adding a bot to the defaults
 
@@ -83,6 +86,17 @@ Closes #12
 2. Reply in each review thread with `Fixed in <sha>: <what changed>` or `Not doing it: <reason>`.
 3. Don't resolve a thread yourself; the reviewer resolves it once satisfied.
 4. Don't force-push once review has started. Add a commit for each fix.
+
+## Releasing
+
+A maintainer releases by pushing a tag from `main`. The release workflow builds the binaries, creates the release with generated notes, attests each binary, then downloads each one on a runner of its own OS and architecture to verify its attestation and run `script/test-binary.sh` on it. For a stable tag it also installs the extension with `gh` and checks that `gh extension list` shows the tag, which only a binary install does.
+
+```sh
+git tag v0.2.0-rc.1 && git push origin v0.2.0-rc.1   # a tag with a "-" makes a prerelease, which gh extension install skips
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+Never create a release by hand: the workflow then uploads into it afterwards, and until it does, the latest release has no binaries, so new installs get the script and upgrades of binary installs fail.
 
 ## Working with an AI assistant
 
