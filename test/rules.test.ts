@@ -6,7 +6,10 @@ import {
   decide,
   needsWorkflowRuns,
   NOTIFICATION_REASONS,
+  ignoredLogins,
+  parseIgnoreList,
   parseReasons,
+  parseSince,
   participants,
   type ThreadActivity,
 } from "../src/rules.ts";
@@ -62,6 +65,33 @@ describe("parseReasons (--keep-reason)", () => {
         !error.message.includes("'mention'") &&
         NOTIFICATION_REASONS.every((r) => error.message.includes(r)),
     );
+  });
+});
+
+describe("parseSince (--since)", () => {
+  const now = new Date("2026-11-24T12:00:00.000Z");
+
+  test("subtracts minutes, hours, days or weeks from now", () => {
+    const cases: [string, string][] = [
+      ["30m", "2026-11-24T11:30:00.000Z"],
+      ["12h", "2026-11-24T00:00:00.000Z"],
+      ["7d", "2026-11-17T12:00:00.000Z"],
+      ["2w", "2026-11-10T12:00:00.000Z"],
+    ];
+    for (const [duration, cutoff] of cases) assert.equal(parseSince(duration, now).toISOString(), cutoff, duration);
+  });
+
+  test("rejects a missing or unknown unit, a sign, a fraction and zero", () => {
+    for (const duration of ["", "7", "d", "7y", "7D", "-7d", "+7d", "1.5h", " 7d", "0d", "00h"]) {
+      assert.throws(() => parseSince(duration, now), /expected a positive whole number/, duration);
+    }
+  });
+
+  test("accepts a cutoff at the Unix epoch and rejects one before it, or past a date's range", () => {
+    assert.equal(parseSince("1w", new Date("1970-01-08T00:00:00.000Z")).toISOString(), "1970-01-01T00:00:00.000Z");
+    for (const duration of ["400000d", `${"1".repeat(20)}d`]) {
+      assert.throws(() => parseSince(duration, now), /reaches back before 1970/, duration);
+    }
   });
 });
 
@@ -730,5 +760,48 @@ describe("participants", () => {
       }),
     );
     assert.deepEqual([...logins], ["dependabot[bot]"]);
+  });
+});
+
+describe("parseIgnoreList (GH_NOTIF_CLEAN_IGNORE)", () => {
+  test("trims entries and skips empty ones", () => {
+    assert.deepEqual(parseIgnoreList(" cla-assistant[bot] ,, github-actions[bot],  ,"), [
+      "cla-assistant[bot]",
+      "github-actions[bot]",
+    ]);
+  });
+
+  test("also splits on spaces and newlines", () => {
+    assert.deepEqual(parseIgnoreList("cla-assistant[bot] github-actions[bot]\nCopilot"), [
+      "cla-assistant[bot]",
+      "github-actions[bot]",
+      "Copilot",
+    ]);
+  });
+
+  test("is empty when unset or blank", () => {
+    assert.deepEqual(parseIgnoreList(undefined), []);
+    assert.deepEqual(parseIgnoreList(" , "), []);
+  });
+});
+
+describe("ignoredLogins", () => {
+  const defaults = DEFAULT_IGNORED.map((l) => l.toLowerCase());
+
+  test("unions the defaults, GH_NOTIF_CLEAN_IGNORE and --ignore, lowercased", () => {
+    assert.deepEqual(
+      [...ignoredLogins({ noDefaultBots: false, env: "CLA-Assistant[bot]", ignore: ["Copilot"] })],
+      [...defaults, "cla-assistant[bot]", "copilot"],
+    );
+  });
+
+  test("--no-default-bots keeps GH_NOTIF_CLEAN_IGNORE entries", () => {
+    assert.deepEqual([...ignoredLogins({ noDefaultBots: true, env: "cla-assistant[bot]", ignore: [] })], [
+      "cla-assistant[bot]",
+    ]);
+  });
+
+  test("is empty with --no-default-bots and nothing else", () => {
+    assert.equal(ignoredLogins({ noDefaultBots: true, env: " , ", ignore: [] }).size, 0);
   });
 });

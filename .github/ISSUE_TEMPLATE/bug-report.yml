@@ -29,6 +29,7 @@ body:
     id: command
     attributes:
       label: Command you ran
+      description: Include `GH_NOTIF_CLEAN_IGNORE` if it is set, for example `GH_NOTIF_CLEAN_IGNORE='cla-assistant[bot]' gh notif-clean -n`.
       placeholder: gh notif-clean --dry-run -v --ignore 'cla-assistant[bot]'
     validations:
       required: true

@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { clean, type ThreadResult } from "./clean.ts";
 import { createApi, ghAuth } from "./github.ts";
-import { DEFAULT_IGNORED, NOTIFICATION_REASONS, parseReasons } from "./rules.ts";
+import { DEFAULT_IGNORED, ignoredLogins, NOTIFICATION_REASONS, parseReasons, parseSince } from "./rules.ts";
 
 const HELP = `Mark GitHub notifications as done when only ignored bots (and you) took part.
 
@@ -11,9 +11,13 @@ Flags:
   -n, --dry-run             List what would be marked done without changing anything
   -v, --verbose             Also list kept threads and why they were kept
   -i, --ignore LOGIN        Also ignore this account (repeatable), e.g. 'cla-assistant[bot]'
-      --no-default-bots     Ignore only the accounts given with --ignore
+      --no-default-bots     Ignore only the accounts given with --ignore or GH_NOTIF_CLEAN_IGNORE
   -R, --repo REPO           Only process OWNER/NAME or every repo of OWNER (repeatable)
       --unread-only         Skip threads you have already read
+      --since DURATION      Only check threads updated in the last DURATION: a whole number
+                            of minutes (m), hours (h), days (d) or weeks (w), e.g. 7d or 12h.
+                            Older threads aren't checked, even if an earlier run left them
+                            in your inbox
       --keep-failed         Keep open PRs whose latest commit has failed or unfinished checks
       --closed-only         Keep open PRs and issues; mark only closed or merged ones done
       --keep-reason REASON  Keep threads whose notification reason is REASON (repeatable), e.g.
@@ -22,6 +26,10 @@ Flags:
                             thread, not from every notification it had
       --json                Print results as JSON
   -h, --help                Show this help
+
+Environment:
+  GH_NOTIF_CLEAN_IGNORE     Accounts to ignore on every run, like --ignore, separated
+                            by commas or whitespace
 
 Ignored by default: ${DEFAULT_IGNORED.join(", ")}
 Reasons for --keep-reason: ${NOTIFICATION_REASONS.join(", ")}
@@ -48,6 +56,7 @@ async function main(argv: string[]): Promise<number> {
         "no-default-bots": { type: "boolean", default: false },
         repo: { type: "string", short: "R", multiple: true, default: [] },
         "unread-only": { type: "boolean", default: false },
+        since: { type: "string" },
         "keep-failed": { type: "boolean", default: false },
         "keep-reason": { type: "string", multiple: true, default: [] },
         "closed-only": { type: "boolean", default: false },
@@ -64,9 +73,13 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const ignoredLogins = [...(values["no-default-bots"] ? [] : DEFAULT_IGNORED), ...values.ignore];
-  if (ignoredLogins.length === 0) {
-    process.stderr.write("--no-default-bots needs at least one --ignore LOGIN\n");
+  const ignored = ignoredLogins({
+    noDefaultBots: values["no-default-bots"],
+    env: process.env.GH_NOTIF_CLEAN_IGNORE,
+    ignore: values.ignore,
+  });
+  if (ignored.size === 0) {
+    process.stderr.write("--no-default-bots needs at least one --ignore LOGIN or GH_NOTIF_CLEAN_IGNORE entry\n");
     return 2;
   }
 
@@ -78,13 +91,24 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
+  let since: Date | null = null;
+  if (values.since !== undefined) {
+    try {
+      since = parseSince(values.since, new Date());
+    } catch (error) {
+      process.stderr.write(`--since: ${(error as Error).message}\n`);
+      return 2;
+    }
+  }
+
   const api = createApi(ghAuth());
   const { login: me } = await api.get<{ login: string }>("user");
   const results = await clean(api, {
     me,
-    ignored: new Set(ignoredLogins.map((l) => l.toLowerCase())),
+    ignored,
     repos: values.repo,
     unreadOnly: values["unread-only"],
+    since,
     dryRun: values["dry-run"],
     keepFailed: values["keep-failed"],
     keepReasons,

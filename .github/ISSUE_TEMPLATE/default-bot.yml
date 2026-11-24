@@ -8,7 +8,7 @@ body:
       value: |
         A default bot is ignored for every user, so a thread it takes part in can be marked done without anyone asking for that. Suggest a bot only if its activity never needs a person's attention on its own.
 
-        For a bot only you want ignored, use `--ignore 'login[bot]'` or a `gh alias` (see the README) instead.
+        For a bot only you want ignored, use `--ignore 'login[bot]'` or the `GH_NOTIF_CLEAN_IGNORE` environment variable (see the README) instead.
   - type: input
     id: login
     attributes:
