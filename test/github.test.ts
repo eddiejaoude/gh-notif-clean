@@ -165,16 +165,23 @@ test("findGh finds nothing when no absolute PATH entry has gh", () => {
   assert.equal(findGh({}, "linux", fs.isExecutable), undefined);
 });
 
-test("findGh prefers an absolute GH_PATH, which gh sets for extensions, to PATH", () => {
-  const fs = files("/usr/bin/gh");
+test("findGh prefers GH_PATH, which gh sets for extensions, when it can run it", () => {
+  const fs = files("/opt/gh/bin/gh", "/usr/bin/gh", "C:\\Program Files\\GitHub CLI\\gh.exe");
 
   assert.equal(findGh({ GH_PATH: "/opt/gh/bin/gh", PATH: "/usr/bin" }, "linux", fs.isExecutable), "/opt/gh/bin/gh");
   assert.equal(
     findGh({ gh_path: "C:\\Program Files\\GitHub CLI\\gh.exe", PATH: "" }, "win32", fs.isExecutable),
     "C:\\Program Files\\GitHub CLI\\gh.exe",
   );
-  assert.deepEqual(fs.checked, []);
+  assert.deepEqual(fs.checked, ["/opt/gh/bin/gh", "C:\\Program Files\\GitHub CLI\\gh.exe"]);
+});
+
+test("findGh falls back to PATH from a relative GH_PATH or one it can't run", () => {
+  const fs = files("bin/gh", "/usr/bin/gh");
+
   assert.equal(findGh({ GH_PATH: "bin/gh", PATH: "/usr/bin" }, "linux", fs.isExecutable), "/usr/bin/gh");
+  assert.equal(findGh({ GH_PATH: "/opt/gh/bin/gh", PATH: "/usr/bin" }, "linux", fs.isExecutable), "/usr/bin/gh");
+  assert.deepEqual(fs.checked, ["/usr/bin/gh", "/opt/gh/bin/gh", "/usr/bin/gh"]);
 });
 
 test("findGh on Windows tries each PATH entry with each PATHEXT extension in order", () => {
