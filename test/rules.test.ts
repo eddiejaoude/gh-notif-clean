@@ -85,8 +85,11 @@ describe("parseSince (--since)", () => {
     }
   });
 
-  test("rejects a duration that reaches back further than a date can", () => {
-    assert.throws(() => parseSince(`${"1".repeat(20)}d`, now), /reaches back further/);
+  test("accepts a cutoff at the Unix epoch and rejects one before it, or past a date's range", () => {
+    assert.equal(parseSince("1w", new Date("1970-01-08T00:00:00.000Z")).toISOString(), "1970-01-01T00:00:00.000Z");
+    for (const duration of ["400000d", `${"1".repeat(20)}d`]) {
+      assert.throws(() => parseSince(duration, now), /reaches back before 1970/, duration);
+    }
   });
 });
 
