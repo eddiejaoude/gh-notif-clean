@@ -78,13 +78,20 @@ describe("checksReason (README --keep-failed examples)", () => {
       check_suite: { id: suite },
     };
   };
-  /** Suites 1, 2 and 5 are `pull_request` runs of workflow 10, suite 3 is its `push` run, suite 4 is another workflow's. */
+  /**
+   * Suites 1, 2 and 5 are `pull_request` runs of workflow 10, suite 3 is its `push` run, suite 4 is another workflow's.
+   * Suites 6 and 7 are `workflow_dispatch` runs of workflow 10 and suite 8 is its `issue_comment` run: the PR's check
+   * list leaves those three out.
+   */
   const workflowRuns = [
     { check_suite_id: 1, workflow_id: 10, event: "pull_request" },
     { check_suite_id: 2, workflow_id: 10, event: "pull_request" },
     { check_suite_id: 3, workflow_id: 10, event: "push" },
     { check_suite_id: 4, workflow_id: 20, event: "pull_request" },
     { check_suite_id: 5, workflow_id: 10, event: "pull_request" },
+    { check_suite_id: 6, workflow_id: 10, event: "workflow_dispatch" },
+    { check_suite_id: 7, workflow_id: 10, event: "workflow_dispatch" },
+    { check_suite_id: 8, workflow_id: 10, event: "issue_comment" },
   ];
   const gate = "All required checks pass";
   const failure = run(gate, "completed", "failure");
@@ -94,6 +101,8 @@ describe("checksReason (README --keep-failed examples)", () => {
   const timedOut = run("deploy", "completed", "cancelled", 1800);
   /** `deploy` passing in the newer `pull_request` run, an hour after `timedOut` started. */
   const deployPassed = run("deploy", "completed", "success", 60, 3600, 2);
+  /** The gate failing half an hour into the first `workflow_dispatch` run, which the PR's check list leaves out. */
+  const dispatched = run(gate, "completed", "failure", 1800, 0, 6);
 
   test("a failed Vercel deploy keeps the thread", () => {
     assert.equal(checksReason([{ context: "Vercel", state: "failure" }], [], workflowRuns), "checks failed: Vercel");
@@ -283,6 +292,115 @@ describe("checksReason (README --keep-failed examples)", () => {
     assert.equal(checksReason([], [timedOut, deployPassed, newestTimedOut], workflowRuns), "checks cancelled: deploy");
   });
 
+  test("a failed or cancelled run the check list leaves out doesn't keep the thread when the list's run of its workflow passed the job, whichever ran first", () => {
+    for (const conclusion of ["failure", "cancelled"]) {
+      const leftOut = run(gate, "completed", conclusion, 1800, 0, 6);
+      // Started an hour before it, while it ran, and an hour after it started.
+      for (const start of [-3600, 30, 3600]) {
+        const pass = run(gate, "completed", "success", 60, start, 1);
+        assert.equal(checksReason([], [leftOut, pass], workflowRuns), null, `${conclusion}, pass started at ${start}s`);
+        assert.equal(checksReason([], [pass, leftOut], workflowRuns), null, `${conclusion}, pass started at ${start}s, listed first`);
+      }
+    }
+  });
+
+  test("a failed run the check list leaves out keeps the thread when the list's run of its workflow skipped the job", () => {
+    assert.equal(checksReason([], [dispatched, run(gate, "completed", "skipped", 0, 5, 1)], workflowRuns), `checks failed: ${gate}`);
+  });
+
+  test("a failed run the check list leaves out keeps the thread unless the job passed in a listed run of its workflow", () => {
+    for (const [runs, label] of [
+      [[dispatched], "no other run of the job, as when the workflow has no run in the list"],
+      [[dispatched, run(gate, "completed", "neutral", 60, 3600, 1)], "neutral in the list's run"],
+      [[dispatched, run(gate, "completed", "success", 60, 3600, 4)], "passed in another workflow's listed run"],
+      [[dispatched, run(gate, "completed", "success", 60, 3600, 8)], "passed in a run for another event the list leaves out"],
+      [[dispatched, run(gate, "completed", "success", 60, 30, 7)], "passed in an overlapping run for the same event"],
+    ] as const) {
+      assert.equal(checksReason([], runs, workflowRuns), `checks failed: ${gate}`, label);
+    }
+  });
+
+  test("a failed run the check list leaves out is still excused by a newer run for its event, like a listed one", () => {
+    assert.equal(checksReason([], [dispatched, run(gate, "completed", "success", 60, 3600, 7)], workflowRuns), null);
+  });
+
+  test("a failed run in the check list keeps the thread when the job passed only in a run the list leaves out", () => {
+    assert.equal(checksReason([], [failure, run(gate, "completed", "success", 60, 3600, 6)], workflowRuns), `checks failed: ${gate}`);
+  });
+
+  test("a failed run the check list leaves out keeps the thread when the workflow runs don't show the listed pass", () => {
+    const pass = run(gate, "completed", "success", 60, 3600, 1);
+    for (const [runs, workflows, label] of [
+      [[dispatched, pass], [], "no workflow runs"],
+      [[{ ...dispatched, check_suite: { id: 99 } }, pass], workflowRuns, "failure's run not listed"],
+      [[dispatched, { ...pass, check_suite: { id: 99 } }], workflowRuns, "pass's run not listed"],
+      [[dispatched, { ...pass, check_suite: null }], workflowRuns, "pass outside a check suite"],
+    ] as const) {
+      assert.equal(checksReason([], runs, workflows), `checks failed: ${gate}`, label);
+    }
+  });
+
+  test("only a pass in a run for an event the check list includes excuses a failed run for an event it leaves out", () => {
+    const listed = ["push", "pull_request", "pull_request_review", "pull_request_target", "deployment", "deployment_status", "merge_group", "dynamic"];
+    const leftOut = ["workflow_dispatch", "pull_request_review_comment", "issue_comment", "schedule", "create"];
+    // The pass started first, so a newer run for the same event can't be what excuses the failure.
+    const runs = [run(gate, "completed", "failure", 60, 0, 1), run(gate, "completed", "success", 60, -3600, 2)];
+    for (const failedEvent of [...listed, ...leftOut]) {
+      for (const passEvent of [...listed, ...leftOut].filter((event) => event !== failedEvent)) {
+        const workflows = [
+          { check_suite_id: 1, workflow_id: 10, event: failedEvent },
+          { check_suite_id: 2, workflow_id: 10, event: passEvent },
+        ];
+        const excused = leftOut.includes(failedEvent) && listed.includes(passEvent);
+        assert.equal(checksReason([], runs, workflows), excused ? null : `checks failed: ${gate}`, `${failedEvent} failed, ${passEvent} passed`);
+      }
+    }
+  });
+
+  test("dispatched jobs that were cancelled or failed, then passed in the PR's own run of that workflow, don't keep the thread (real payload)", () => {
+    // An open PR: a `workflow_dispatch` run on its branch had five jobs cancelled about 15 minutes in and its
+    // summary job failed; the same jobs then passed in the PR's `pull_request` run of that workflow, the only
+    // one `gh pr checks` lists. Fields trimmed to those read.
+    const runs = [
+      { name: "diagnostics table, all runs", status: "completed", conclusion: "success", started_at: "2026-11-24T01:39:21Z", completed_at: "2026-11-24T01:39:33Z", check_suite: { id: 122560583971 } },
+      { name: "diagnostics table, all runs", status: "completed", conclusion: "failure", started_at: "2026-11-24T00:02:19Z", completed_at: "2026-11-24T00:02:34Z", check_suite: { id: 122560397435 } },
+      { name: "diagnostics run 1", status: "completed", conclusion: "success", started_at: "2026-11-24T00:02:17Z", completed_at: "2026-11-24T01:35:48Z", check_suite: { id: 122560583971 } },
+      { name: "diagnostics run 5", status: "completed", conclusion: "success", started_at: "2026-11-24T00:02:16Z", completed_at: "2026-11-24T00:20:39Z", check_suite: { id: 122560583971 } },
+      { name: "diagnostics run 3", status: "completed", conclusion: "success", started_at: "2026-11-24T00:02:31Z", completed_at: "2026-11-24T01:39:18Z", check_suite: { id: 122560583971 } },
+      { name: "diagnostics run 4", status: "completed", conclusion: "success", started_at: "2026-11-24T00:02:17Z", completed_at: "2026-11-24T01:30:17Z", check_suite: { id: 122560583971 } },
+      { name: "diagnostics run 2", status: "completed", conclusion: "success", started_at: "2026-11-24T00:02:25Z", completed_at: "2026-11-24T00:20:42Z", check_suite: { id: 122560583971 } },
+      { name: "diagnostics run 1", status: "completed", conclusion: "cancelled", started_at: "2026-11-23T23:47:37Z", completed_at: "2026-11-24T00:02:13Z", check_suite: { id: 122560397435 } },
+      { name: "diagnostics run 3", status: "completed", conclusion: "cancelled", started_at: "2026-11-23T23:47:37Z", completed_at: "2026-11-24T00:02:14Z", check_suite: { id: 122560397435 } },
+      { name: "diagnostics run 4", status: "completed", conclusion: "cancelled", started_at: "2026-11-23T23:47:36Z", completed_at: "2026-11-24T00:02:09Z", check_suite: { id: 122560397435 } },
+      { name: "diagnostics run 2", status: "completed", conclusion: "cancelled", started_at: "2026-11-23T23:47:37Z", completed_at: "2026-11-24T00:02:14Z", check_suite: { id: 122560397435 } },
+      { name: "diagnostics run 5", status: "completed", conclusion: "cancelled", started_at: "2026-11-23T23:47:36Z", completed_at: "2026-11-24T00:02:10Z", check_suite: { id: 122560397435 } },
+    ];
+    const workflows = [
+      { workflow_id: 421617442, event: "pull_request", check_suite_id: 122560583971 },
+      { workflow_id: 421617442, event: "workflow_dispatch", check_suite_id: 122560397435 },
+    ];
+    assert.equal(checksReason([], runs, workflows), null);
+  });
+
+  test("integration tests that failed in a dispatched run keep the thread when the PR's own run of that workflow skipped them (real payload)", () => {
+    // An open PR that GitHub showed passing: its check list holds only the `pull_request` run of the integration
+    // workflow, which skipped every job, while a `workflow_dispatch` run on the same commit ran them and two
+    // failed. Fields trimmed to those read, and to three of each run's jobs.
+    const runs = [
+      { name: "Build (Linux)", status: "completed", conclusion: "success", started_at: "2026-11-24T05:33:04Z", completed_at: "2026-11-24T05:34:05Z", check_suite: { id: 122669514299 } },
+      { name: "Integration Tests Shard 7 (Linux)", status: "completed", conclusion: "failure", started_at: "2026-11-24T05:34:36Z", completed_at: "2026-11-24T05:48:00Z", check_suite: { id: 122669514299 } },
+      { name: "Integration Tests (Linux)", status: "completed", conclusion: "failure", started_at: "2026-11-24T05:51:32Z", completed_at: "2026-11-24T05:52:03Z", check_suite: { id: 122669514299 } },
+      { name: "Integration Tests Shard ${{ matrix.shard }} (Linux)", status: "completed", conclusion: "skipped", started_at: "2026-11-24T05:33:37Z", completed_at: "2026-11-24T05:33:36Z", check_suite: { id: 122669537975 } },
+      { name: "Integration Tests (Linux)", status: "completed", conclusion: "skipped", started_at: "2026-11-24T05:33:37Z", completed_at: "2026-11-24T05:33:37Z", check_suite: { id: 122669537975 } },
+      { name: "Build (Linux)", status: "completed", conclusion: "skipped", started_at: "2026-11-24T05:33:37Z", completed_at: "2026-11-24T05:33:36Z", check_suite: { id: 122669537975 } },
+    ];
+    const workflows = [
+      { workflow_id: 238019698, event: "pull_request", check_suite_id: 122669537975 },
+      { workflow_id: 238019698, event: "workflow_dispatch", check_suite_id: 122669514299 },
+    ];
+    assert.equal(checksReason([], runs, workflows), "checks failed: Integration Tests (Linux), Integration Tests Shard 7 (Linux)");
+  });
+
   test("passed, neutral and skipped checks, or none, don't keep the thread", () => {
     const done = [run("a", "completed", "success"), run("b", "completed", "neutral"), run("c", "completed", "skipped")];
     assert.equal(checksReason([{ context: "Vercel", state: "success" }], done, workflowRuns), null);
@@ -291,26 +409,32 @@ describe("checksReason (README --keep-failed examples)", () => {
 });
 
 describe("needsWorkflowRuns", () => {
-  const at = (conclusion: string, start: number, name = "test") => ({
+  /** A check run in check suite `suite` that started `start` seconds after 10:00 and ran for a minute. */
+  const at = (conclusion: string, start: number, suite = 1, name = "test") => ({
     name,
     status: "completed",
     conclusion,
     started_at: new Date(Date.parse("2026-11-23T10:00:00Z") + start * 1000).toISOString(),
     completed_at: new Date(Date.parse("2026-11-23T10:00:00Z") + (start + 60) * 1000).toISOString(),
-    check_suite: { id: 1 },
+    check_suite: { id: suite },
   });
 
-  test("only a failed run, or one cancelled after it started, with a same-named pass that started after it completed needs them", () => {
+  test("only a failed run, or one cancelled after it started, with a same-named pass in another check suite needs them", () => {
     const neverRan = { ...at("cancelled", 0), completed_at: at("cancelled", 0).started_at };
-    assert.equal(needsWorkflowRuns([at("failure", 0), at("success", 3600)]), true);
-    assert.equal(needsWorkflowRuns([at("timed_out", 0), at("success", 3600)]), true);
-    assert.equal(needsWorkflowRuns([at("cancelled", 0), at("success", 3600)]), true, "cancelled after it started");
-    assert.equal(needsWorkflowRuns([at("failure", 0), at("success", 30)]), false, "overlapping pass");
-    assert.equal(needsWorkflowRuns([at("failure", 0), at("skipped", 3600)]), false, "later skip");
-    assert.equal(needsWorkflowRuns([at("cancelled", 0), at("skipped", 3600)]), false, "cancelled, later skip");
-    assert.equal(needsWorkflowRuns([at("failure", 0), at("success", 3600, "lint")]), false, "other name");
-    assert.equal(needsWorkflowRuns([neverRan, at("success", 3600)]), false, "cancelled before it started");
-    assert.equal(needsWorkflowRuns([at("success", 0), at("success", 3600)]), false, "nothing failed");
+    assert.equal(needsWorkflowRuns([at("failure", 0), at("success", 3600, 2)]), true);
+    assert.equal(needsWorkflowRuns([at("timed_out", 0), at("success", 3600, 2)]), true);
+    assert.equal(needsWorkflowRuns([at("cancelled", 0), at("success", 3600, 2)]), true, "cancelled after it started");
+    // A listed pass excuses a run the check list leaves out whichever ran first.
+    assert.equal(needsWorkflowRuns([at("failure", 0), at("success", 30, 2)]), true, "overlapping pass");
+    assert.equal(needsWorkflowRuns([at("failure", 0), at("success", -3600, 2)]), true, "earlier pass");
+    assert.equal(needsWorkflowRuns([at("failure", 0), at("success", 3600)]), false, "pass in the same check suite");
+    assert.equal(needsWorkflowRuns([at("failure", 0), { ...at("success", 3600), check_suite: null }]), false, "pass outside a check suite");
+    assert.equal(needsWorkflowRuns([{ ...at("failure", 0), check_suite: null }, at("success", 3600, 2)]), false, "failure outside a check suite");
+    assert.equal(needsWorkflowRuns([at("failure", 0), at("skipped", 3600, 2)]), false, "later skip");
+    assert.equal(needsWorkflowRuns([at("cancelled", 0), at("skipped", 3600, 2)]), false, "cancelled, later skip");
+    assert.equal(needsWorkflowRuns([at("failure", 0), at("success", 3600, 2, "lint")]), false, "other name");
+    assert.equal(needsWorkflowRuns([neverRan, at("success", 3600, 2)]), false, "cancelled before it started");
+    assert.equal(needsWorkflowRuns([at("success", 0), at("success", 3600, 2)]), false, "nothing failed");
   });
 });
 

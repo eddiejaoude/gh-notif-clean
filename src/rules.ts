@@ -134,16 +134,39 @@ const FAILED_STATES: Record<string, true> = { failure: true, error: true };
 const FAILED_CONCLUSIONS: Record<string, true> = { failure: true, timed_out: true, action_required: true };
 
 /**
+ * Workflow events whose runs a PR's check list includes: the ones GitHub
+ * documents as evaluated for a PR, plus `merge_group` and `dynamic`, whose
+ * runs it lists too. A run for any other event, such as `workflow_dispatch` on
+ * the PR's branch, is on the head commit but not in `gh pr checks` or on the
+ * PR page. Only a run left out can be excused by a listed pass, so the set
+ * errs toward including: Copilot's `dynamic` review run is left out of the
+ * list but judged as if listed.
+ * https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#checks-from-some-workflow-jobs-are-not-evaluated
+ */
+const CHECK_LIST_EVENTS: Record<string, true> = {
+  push: true,
+  pull_request: true,
+  pull_request_review: true,
+  pull_request_target: true,
+  deployment: true,
+  deployment_status: true,
+  merge_group: true,
+  dynamic: true,
+};
+
+/**
  * Why a PR's head commit keeps its thread: checks that failed, or else checks
  * that haven't finished, or else check runs that were cancelled after they
- * started. A failed or cancelled check run doesn't count when the same job
- * passed in a newer run of the same workflow for the same event, which
- * `workflowRuns` (the commit's Actions runs) identifies: a later start alone
- * doesn't show a replacement, as a `push` run and a `pull_request` run of one
- * workflow queue their jobs independently. Unfinished checks keep it because a
- * status changing doesn't notify, so a thread marked done now wouldn't come
- * back if one fails. Cancelled runs keep it because GitHub Actions reports a
- * job that hit `timeout-minutes` as cancelled, not timed out. `null` otherwise.
+ * started. A failed or cancelled check run doesn't count when a same-named
+ * pass replaced it, which `workflowRuns` (the commit's Actions runs) shows: a
+ * pass in a newer run of the same workflow for the same event, as a later
+ * start alone doesn't show a replacement (a `push` run and a `pull_request`
+ * run of one workflow queue their jobs independently), or, for a run the PR's
+ * check list leaves out, a pass in a run of the same workflow that the list
+ * includes. Unfinished checks keep it because a status changing doesn't
+ * notify, so a thread marked done now wouldn't come back if one fails.
+ * Cancelled runs keep it because GitHub Actions reports a job that hit
+ * `timeout-minutes` as cancelled, not timed out. `null` otherwise.
  */
 export function checksReason(
   statuses: readonly CommitStatus[],
@@ -160,7 +183,7 @@ export function checksReason(
   }
   for (const run of checkRuns) {
     if (run.status !== "completed") pending.add(run.name);
-    else if (keepsUnlessReplaced(run) && !laterPasses(run, checkRuns).some((later) => newerRunOfSameWorkflow(run, later, bySuite))) {
+    else if (keepsUnlessReplaced(run) && !passesElsewhere(run, checkRuns).some((pass) => replaced(run, pass, bySuite))) {
       if (run.conclusion === "cancelled") cancelled.add(run.name);
       else failed.add(run.name);
     }
@@ -173,17 +196,17 @@ export function checksReason(
 
 /**
  * Whether a failed check run, or one cancelled after it started, has a
- * same-named pass that started after it completed: only then can the commit's
- * workflow runs excuse it, so they're worth fetching.
+ * same-named pass in another check suite: only then can the commit's workflow
+ * runs excuse it, so they're worth fetching.
  */
 export function needsWorkflowRuns(checkRuns: readonly CheckRun[]): boolean {
-  return checkRuns.some((run) => keepsUnlessReplaced(run) && laterPasses(run, checkRuns).length > 0);
+  return checkRuns.some((run) => keepsUnlessReplaced(run) && passesElsewhere(run, checkRuns).length > 0);
 }
 
 /**
- * Whether a check run keeps the thread unless the same job passed in a newer
- * run of its workflow: it failed, or it was cancelled after it started. A run
- * cancelled before it started can't have hit `timeout-minutes`.
+ * Whether a check run keeps the thread unless a same-named pass replaced it:
+ * it failed, or it was cancelled after it started. A run cancelled before it
+ * started can't have hit `timeout-minutes`.
  */
 function keepsUnlessReplaced(run: CheckRun): boolean {
   if (!run.conclusion) return false;
@@ -193,25 +216,37 @@ function keepsUnlessReplaced(run: CheckRun): boolean {
 }
 
 /**
- * Same-named runs that passed and started after `earlier` completed. A skipped
+ * Same-named runs that passed in a check suite other than `run`'s. A skipped
  * or neutral run doesn't count: it tested nothing, so it can't show that a
  * failure or a possible timeout is gone.
  */
-function laterPasses(earlier: CheckRun, checkRuns: readonly CheckRun[]): CheckRun[] {
-  return checkRuns.filter((run) => run.name === earlier.name && run.conclusion === "success" && startedAfter(run, earlier));
+function passesElsewhere(run: CheckRun, checkRuns: readonly CheckRun[]): CheckRun[] {
+  return checkRuns.filter(
+    (other) =>
+      other.name === run.name &&
+      other.conclusion === "success" &&
+      !!other.check_suite &&
+      !!run.check_suite &&
+      other.check_suite.id !== run.check_suite.id,
+  );
 }
 
 /**
- * Whether `later` ran in another workflow run of the same workflow and event
- * as `earlier`, the key `gh pr checks` keeps the newest check by. A check run
- * outside GitHub Actions, or whose workflow run wasn't listed, matches nothing.
+ * Whether `pass`, a same-named pass in another check suite, replaced `run`.
+ * Both must be in runs of the same workflow. Then either `pass` is in a run
+ * for the same event and started after `run` completed, the key and order
+ * `gh pr checks` keeps the newest check by, or `run` is in a run the PR's
+ * check list leaves out and `pass` in one the list includes, at any time: the
+ * PR shows the job passing, and the run left out may have had other inputs.
+ * A check run outside GitHub Actions, or whose workflow run wasn't listed,
+ * matches nothing.
  */
-function newerRunOfSameWorkflow(earlier: CheckRun, later: CheckRun, bySuite: ReadonlyMap<number, WorkflowRun>): boolean {
-  if (!earlier.check_suite || !later.check_suite || earlier.check_suite.id === later.check_suite.id) return false;
-  const earlierRun = bySuite.get(earlier.check_suite.id);
-  const laterRun = bySuite.get(later.check_suite.id);
-  if (!earlierRun || !laterRun) return false;
-  return earlierRun.workflow_id === laterRun.workflow_id && earlierRun.event === laterRun.event;
+function replaced(run: CheckRun, pass: CheckRun, bySuite: ReadonlyMap<number, WorkflowRun>): boolean {
+  const runWorkflow = run.check_suite ? bySuite.get(run.check_suite.id) : undefined;
+  const passWorkflow = pass.check_suite ? bySuite.get(pass.check_suite.id) : undefined;
+  if (!runWorkflow || !passWorkflow || runWorkflow.workflow_id !== passWorkflow.workflow_id) return false;
+  if (runWorkflow.event === passWorkflow.event) return startedAfter(pass, run);
+  return !CHECK_LIST_EVENTS[runWorkflow.event] && !!CHECK_LIST_EVENTS[passWorkflow.event];
 }
 
 /** Whether `later` started after `earlier` completed; a missing time doesn't prove it. */
