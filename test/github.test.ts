@@ -165,6 +165,20 @@ test("findGh finds nothing when no absolute PATH entry has gh", () => {
   assert.equal(findGh({}, "linux", fs.isExecutable), undefined);
 });
 
+test("findGh on POSIX takes quotes in a PATH entry as part of it", () => {
+  const fs = files("/opt/gh/gh", "/usr/bin/gh");
+
+  assert.equal(findGh({ PATH: '"/opt/gh":/usr/bin' }, "linux", fs.isExecutable), "/usr/bin/gh");
+  assert.deepEqual(fs.checked, ["/usr/bin/gh"]);
+});
+
+test("findGh on Windows uses Windows' default PATHEXT when PATHEXT is empty", () => {
+  const fs = files("C:\\gh\\gh.bat", "C:\\gh\\gh.exe");
+
+  assert.equal(findGh({ PATH: "C:\\gh", PATHEXT: "" }, "win32", fs.isExecutable), "C:\\gh\\gh.exe");
+  assert.deepEqual(fs.checked, ["C:\\gh\\gh.com", "C:\\gh\\gh.exe"]);
+});
+
 test("findGh prefers GH_PATH, which gh sets for extensions, when it can run it", () => {
   const fs = files("/opt/gh/bin/gh", "/usr/bin/gh", "C:\\Program Files\\GitHub CLI\\gh.exe");
 
@@ -274,6 +288,11 @@ test("ghAuth runs the first gh file in PATH it can execute", { skip: process.pla
     assert.deepEqual(ghAuth({ GH_HOST: "invalid.invalid", PATH }), {
       token: "invalid.invalid: auth token --hostname invalid.invalid",
       baseUrl: "https://invalid.invalid/api/v3",
+    });
+    // Without GH_HOST, github.com, whose API has a host of its own.
+    assert.deepEqual(ghAuth({ PATH }), {
+      token: ": auth token --hostname github.com",
+      baseUrl: "https://api.github.com",
     });
   } finally {
     rmSync(dir, { recursive: true });
