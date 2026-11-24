@@ -209,7 +209,9 @@ const refusedHosts = [
   " octocorp.ghe.com",
   "octocorp.ghe.com ",
   "github.com\nevil.example",
-  // Names a URL reads as an IP address, or can't read.
+  // A URL hands it back unchanged, so only the character check refuses it.
+  "a_b.example",
+  // Names a URL rewrites as an IP address, or can't read.
   "4294967296",
   "1.2.3.4.5",
   "2130706433",
