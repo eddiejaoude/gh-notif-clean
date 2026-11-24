@@ -123,6 +123,26 @@ export function ignoredLogins(options: {
   return new Set(logins.map((l) => l.toLowerCase()));
 }
 
+const DURATION_UNITS_MS = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 } as const;
+
+/**
+ * The time `duration` before `now`, for `--since`: a whole number of minutes (`m`), hours (`h`), days (`d`)
+ * or weeks (`w`), such as `7d`. Throws if it's anything else, zero, or reaches back before the Unix epoch,
+ * which no thread predates and which keeps the cutoff in the range GitHub accepts.
+ */
+export function parseSince(duration: string, now: Date): Date {
+  const match = /^(\d+)([mhdw])$/.exec(duration);
+  const amount = Number(match?.[1]);
+  if (!match || amount === 0) {
+    throw new Error(`expected a positive whole number followed by m, h, d or w, such as 7d; got '${duration}'`);
+  }
+  const cutoff = new Date(now.getTime() - amount * DURATION_UNITS_MS[match[2] as keyof typeof DURATION_UNITS_MS]);
+  if (!(cutoff.getTime() >= 0)) {
+    throw new Error(`'${duration}' reaches back before 1970; leave --since out to check every thread`);
+  }
+  return cutoff;
+}
+
 /** Latest status per context on a commit, from the combined status endpoint. */
 export interface CommitStatus {
   context: string;

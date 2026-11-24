@@ -10,9 +10,10 @@ function thread(id: string, repo: string, type: string, url: string | null, reas
   return { id, unread: true, reason, repository: { full_name: repo }, subject: { title: `t${id}`, type, url } };
 }
 
-/** Fake API serving fixed responses; records every path fetched and thread marked done. */
+/** Fake API serving fixed responses; records the notifications lists, every path fetched and thread marked done. */
 function fakeApi(notifications: Notification[], responses: Record<string, unknown>, failDone: string[] = []) {
   const marked: string[] = [];
+  const listed: string[] = [];
   const requested: string[] = [];
   const lookup = (path: string) => {
     requested.push(path);
@@ -31,7 +32,10 @@ function fakeApi(notifications: Notification[], responses: Record<string, unknow
       return body as T;
     },
     async getAll<T>(path: string, key?: string) {
-      if (path.startsWith("notifications")) return notifications as T[];
+      if (path.startsWith("notifications")) {
+        listed.push(path);
+        return notifications as T[];
+      }
       const body = lookup(path) as Record<string, unknown>;
       // Keep wrapped-list fixtures shaped like GitHub's, so `get` above can tell them apart.
       if (key && !("total_count" in body)) throw new Error(`wrapped list fixture without total_count: ${path}`);
@@ -42,7 +46,7 @@ function fakeApi(notifications: Notification[], responses: Record<string, unknow
       marked.push(id);
     },
   };
-  return { api, marked, requested };
+  return { api, marked, listed, requested };
 }
 
 /** Responses for a PR whose timeline holds the given events. */
@@ -70,6 +74,7 @@ const options = (overrides: Partial<CleanOptions> = {}): CleanOptions => ({
   ignored: new Set(DEFAULT_IGNORED),
   repos: [],
   unreadOnly: false,
+  since: null,
   dryRun: false,
   keepFailed: false,
   keepReasons: new Set(),
@@ -122,6 +127,22 @@ test("a failed mark-done is reported as failed", async () => {
   const [result] = await clean(api, options());
   assert.equal(result?.outcome, "failed");
   assert.equal(result?.reason, "500 server error");
+});
+
+test("--since and --unread-only shape the notifications list request", async () => {
+  const since = new Date("2026-11-17T12:34:56.789Z");
+  const { api, listed } = fakeApi([], {});
+  await clean(api, options());
+  await clean(api, options({ unreadOnly: true }));
+  await clean(api, options({ since }));
+  await clean(api, options({ since, unreadOnly: true }));
+  const queries = listed.map((path) => Object.fromEntries(new URL(path, "https://api.github.com").searchParams));
+  assert.deepEqual(queries, [
+    { all: "true" },
+    {},
+    { all: "true", since: "2026-11-17T12:34:56Z" },
+    { since: "2026-11-17T12:34:56Z" },
+  ]);
 });
 
 describe("discussions", () => {

@@ -26,3 +26,10 @@ test("--no-default-bots without --ignore exits 2 when GH_NOTIF_CLEAN_IGNORE is b
   assert.equal(stdout, "");
   assert.match(stderr, /--no-default-bots needs at least one --ignore LOGIN or GH_NOTIF_CLEAN_IGNORE entry/);
 });
+
+test("an invalid --since exits 2 before reaching GitHub", () => {
+  const { status, stdout, stderr } = run(["--since", "7y"]);
+  assert.equal(status, 2);
+  assert.equal(stdout, "");
+  assert.match(stderr, /^--since: .*'7y'/);
+});

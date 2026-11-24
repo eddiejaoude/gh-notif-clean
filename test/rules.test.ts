@@ -9,6 +9,7 @@ import {
   ignoredLogins,
   parseIgnoreList,
   parseReasons,
+  parseSince,
   participants,
   type ThreadActivity,
 } from "../src/rules.ts";
@@ -64,6 +65,33 @@ describe("parseReasons (--keep-reason)", () => {
         !error.message.includes("'mention'") &&
         NOTIFICATION_REASONS.every((r) => error.message.includes(r)),
     );
+  });
+});
+
+describe("parseSince (--since)", () => {
+  const now = new Date("2026-11-24T12:00:00.000Z");
+
+  test("subtracts minutes, hours, days or weeks from now", () => {
+    const cases: [string, string][] = [
+      ["30m", "2026-11-24T11:30:00.000Z"],
+      ["12h", "2026-11-24T00:00:00.000Z"],
+      ["7d", "2026-11-17T12:00:00.000Z"],
+      ["2w", "2026-11-10T12:00:00.000Z"],
+    ];
+    for (const [duration, cutoff] of cases) assert.equal(parseSince(duration, now).toISOString(), cutoff, duration);
+  });
+
+  test("rejects a missing or unknown unit, a sign, a fraction and zero", () => {
+    for (const duration of ["", "7", "d", "7y", "7D", "-7d", "+7d", "1.5h", " 7d", "0d", "00h"]) {
+      assert.throws(() => parseSince(duration, now), /expected a positive whole number/, duration);
+    }
+  });
+
+  test("accepts a cutoff at the Unix epoch and rejects one before it, or past a date's range", () => {
+    assert.equal(parseSince("1w", new Date("1970-01-08T00:00:00.000Z")).toISOString(), "1970-01-01T00:00:00.000Z");
+    for (const duration of ["400000d", `${"1".repeat(20)}d`]) {
+      assert.throws(() => parseSince(duration, now), /reaches back before 1970/, duration);
+    }
   });
 });
 
