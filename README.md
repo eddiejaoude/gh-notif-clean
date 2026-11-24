@@ -21,14 +21,11 @@ gh extension install eddiejaoude/gh-notif-clean
 gh extension upgrade notif-clean   # later, to update
 ```
 
-`gh` installs the binary for your system: `darwin-arm64`, `darwin-amd64`, `linux-arm64`, `linux-amd64`, `windows-arm64` or `windows-amd64`. GitHub Actions builds them from the release's tag and attests each one. To check where a binary came from, download it from its release and verify that file:
+`gh` installs the binary for your system: `darwin-arm64`, `darwin-amd64`, `linux-arm64`, `linux-amd64`, `windows-arm64` or `windows-amd64`. GitHub Actions builds them from the release's tag and attests each one. To check where a binary came from, download it from its release and verify that file, with the tag that `gh extension list` shows for your install in place of `v0.2.0` in both commands:
 
 ```sh
-tag=v0.2.0   # the release to check; gh extension list shows the one you installed
-gh release download "$tag" -R eddiejaoude/gh-notif-clean -p gh-notif-clean-darwin-arm64
-gh attestation verify gh-notif-clean-darwin-arm64 -R eddiejaoude/gh-notif-clean \
-  --signer-workflow eddiejaoude/gh-notif-clean/.github/workflows/release.yml \
-  --source-ref "refs/tags/$tag"
+gh release download v0.2.0 -R eddiejaoude/gh-notif-clean -p gh-notif-clean-darwin-arm64
+gh attestation verify gh-notif-clean-darwin-arm64 -R eddiejaoude/gh-notif-clean --signer-workflow eddiejaoude/gh-notif-clean/.github/workflows/release.yml --source-ref refs/tags/v0.2.0
 ```
 
 With `--signer-workflow` and `--source-ref`, an attestation passes only if this repository's release workflow made it for that tag; one from another workflow, a branch or another tag fails. `--source-ref` needs GitHub CLI 2.68.0 or later.
