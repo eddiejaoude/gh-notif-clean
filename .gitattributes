@@ -1,5 +1,6 @@
 # LF on Windows checkouts too: sh, which runs the scripts there, fails on CRLF, and
-# script/build.sh compares .bun-version's contents with `bun --version`.
+# script/build.sh compares .bun-version and .bun-sha256 with what it reads elsewhere.
 *.sh text eol=lf
 /gh-notif-clean text eol=lf
 /.bun-version text eol=lf
+/.bun-sha256 text eol=lf

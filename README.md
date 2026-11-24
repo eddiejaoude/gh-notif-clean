@@ -181,14 +181,14 @@ npm test           # node:test, no network access
 
 `gh extension install .` in your clone runs your working copy, from source with Node.
 
-The release binaries are compiled with [Bun](https://bun.sh), at the version in `.bun-version`. To build and check them yourself, install that version of Bun, then:
+The release binaries are compiled with [Bun](https://bun.sh), at the version in `.bun-version`. `script/build.sh` builds each one on the Bun runtime from that version's release zip for its platform, which it downloads and checks against the SHA-256 in `.bun-sha256` first, so it also needs `curl` and `unzip`. To build and check them yourself, install that version of Bun, then:
 
 ```sh
 script/build.sh                                         # the six binaries, into dist/
 script/test-binary.sh dist/gh-notif-clean-darwin-arm64  # the checks CI runs on each binary, on yours
 ```
 
-`script/test-binary.sh` never reaches GitHub or uses your login: it runs the binary with nothing but a stub `gh` on `PATH`, logged in only to the unresolvable host `invalid.invalid`, and in a directory whose `bunfig.toml` and `.env` must take no effect. Checking a Windows binary needs Bun as well, to compile the stub `gh.exe`. Dependabot doesn't update `.bun-version`: change it deliberately, and CI builds and checks the binaries with the new version.
+`script/test-binary.sh` never reaches GitHub or uses your login: it runs the binary with nothing but a stub `gh` on `PATH`, logged in only to the unresolvable host `invalid.invalid`, and in a directory whose `bunfig.toml` and `.env` must take no effect. Checking a Windows binary needs Bun as well, to compile the stub `gh.exe`. Dependabot doesn't update `.bun-version`: to change it, also replace `.bun-sha256` with the six zips' lines from that Bun release's `SHASUMS256.txt`, and CI builds and checks the binaries with the new version.
 
 | Path | Contents |
 |---|---|
@@ -197,7 +197,7 @@ script/test-binary.sh dist/gh-notif-clean-darwin-arm64  # the checks CI runs on 
 | `src/clean.ts` | Lists notifications, keeps open ones whose reason matches `--keep-reason`, loads each other thread's activity and, with `--keep-failed`, its PR checks, applies the rules, marks threads done |
 | `src/github.ts` | REST client: `gh auth token`, pagination, retries on 429/5xx; sends the token only to the API host's origin. Runs the `gh` that `GH_PATH` names, which gh sets for extensions from 2.101.0, or else the first one in `PATH`, skipping empty and relative entries |
 | `src/cli.ts` | Flags and output |
-| `script/build.sh` | Compiles `src/cli.ts` into the six release binaries in `dist/`, with `.env` and `bunfig.toml` loading switched off |
+| `script/build.sh` | Compiles `src/cli.ts` into the six release binaries in `dist/`, on Bun runtimes checked against `.bun-sha256`, with `.env` and `bunfig.toml` loading switched off |
 | `script/test-binary.sh` | The checks CI and the release workflow run on each binary |
 | `.github/workflows/release.yml` | On a `v*` tag: builds, publishes and attests the binaries, then checks each on its own OS and architecture |
 
