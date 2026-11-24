@@ -189,16 +189,48 @@ test("apiBaseUrl refuses github.localhost, which gh reaches over plain http", ()
   assert.equal(apiBaseUrl("notgithub.localhost"), "https://notgithub.localhost/api/v3");
 });
 
+// An isExecutable that finds no gh and records whether it was asked, so nothing ever runs.
+function noGh() {
+  const check = { looked: false, isExecutable: () => ((check.looked = true), false) };
+  return check;
+}
+
+const refusedHosts = [
+  "evil.example/.ghe.com",
+  "evil.example/x.ghe.com",
+  "evil.example#.ghe.com",
+  "evil.example?.ghe.com",
+  "user@evil.example/.ghe.com",
+  "evil.example:443/.ghe.com",
+  "evil.example/.github.com",
+  " octocorp.ghe.com",
+  "octocorp.ghe.com ",
+];
+
+test("apiBaseUrl accepts only a plain host name", () => {
+  for (const host of refusedHosts) {
+    assert.throws(
+      () => apiBaseUrl(host),
+      { message: `GH_HOST must be a host name, such as github.com or SUBDOMAIN.ghe.com; got ${JSON.stringify(host)}` },
+      host,
+    );
+  }
+});
+
 test("ghAuth refuses a host before it looks for gh", () => {
-  for (const host of ["api.octocorp.ghe.com", "github.localhost"]) {
-    // Finds no gh, so nothing runs even if the host were checked too late.
-    let looked = false;
-    const isExecutable = () => {
-      looked = true;
-      return false;
-    };
-    assert.throws(() => ghAuth({ GH_HOST: host, PATH: "/nonexistent-gh-notif-clean" }, "linux", isExecutable), /^Error: GH_HOST /, host);
-    assert.equal(looked, false, host);
+  for (const host of ["api.octocorp.ghe.com", "github.localhost", ...refusedHosts]) {
+    const gh = noGh();
+    assert.throws(() => ghAuth({ GH_HOST: host, PATH: "/nonexistent-gh-notif-clean" }, "linux", gh.isExecutable), /^Error: GH_HOST /, host);
+    assert.equal(gh.looked, false, host);
+  }
+});
+
+test("ghAuth accepts a plain host name and goes on to look for gh", () => {
+  // invalid.invalid and hostile.invalid are the hosts test/cli.test.ts and script/test-binary.sh use.
+  for (const host of ["github.com", "GitHub.com", "octocorp.ghe.com", "OctoCorp.GHE.com", "ghe.example", "invalid.invalid", "hostile.invalid"]) {
+    const gh = noGh();
+    assert.throws(() => ghAuth({ GH_HOST: host, PATH: "/nonexistent-gh-notif-clean" }, "linux", gh.isExecutable), /^Error: gh not found/, host);
+    assert.equal(gh.looked, true, host);
   }
 });
 
@@ -380,6 +412,11 @@ test("ghAuth runs the first gh file in PATH it can execute", { skip: process.pla
     });
     // Without GH_HOST, github.com, whose API has a host of its own.
     assert.deepEqual(ghAuth({ PATH }), {
+      token: ": auth token --hostname github.com",
+      baseUrl: "https://api.github.com",
+    });
+    // An empty GH_HOST counts as unset, as it does for gh.
+    assert.deepEqual(ghAuth({ GH_HOST: "", PATH }), {
       token: ": auth token --hostname github.com",
       baseUrl: "https://api.github.com",
     });

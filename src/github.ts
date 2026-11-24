@@ -87,9 +87,12 @@ function isExecutableFile(file: string): boolean {
  * Server form here, where gh uses `https://api.HOST`; `garage.github.com`, which gh maps to the
  * Enterprise Server form by a special case, matches only as a result. A name with more than one
  * label before `.ghe.com` is refused, and so are `github.localhost` and its subdomains, which gh
- * reaches over plain http.
+ * reaches over plain http. A host name may hold only letters, digits, dots and hyphens.
  */
 export function apiBaseUrl(host: string): string {
+  if (!/^[a-z0-9.-]+$/i.test(host)) {
+    throw new Error(`GH_HOST must be a host name, such as github.com or SUBDOMAIN.ghe.com; got ${JSON.stringify(host)}`);
+  }
   const name = host.toLowerCase();
   if (name === "github.com") return "https://api.github.com";
   if (name === "github.localhost" || name.endsWith(".github.localhost")) {
@@ -112,15 +115,16 @@ export function apiBaseUrl(host: string): string {
 }
 
 /**
- * Token and API base URL for the host `gh` is logged in to (`GH_HOST`, default github.com).
- * Tells apart a gh it can't find, one it can't start, and one that ran and failed.
+ * Token and API base URL for the host `gh` is logged in to (`GH_HOST`, default github.com,
+ * as when it's empty). Tells apart a gh it can't find, one it can't start, and one that ran
+ * and failed.
  */
 export function ghAuth(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
   isExecutable: (file: string) => boolean = isExecutableFile,
 ): { token: string; baseUrl: string } {
-  const host = env.GH_HOST ?? "github.com";
+  const host = env.GH_HOST || "github.com";
   // Before gh runs, so no token is read for a host that's refused.
   const baseUrl = apiBaseUrl(host);
   const gh = findGh(env, platform, isExecutable);
