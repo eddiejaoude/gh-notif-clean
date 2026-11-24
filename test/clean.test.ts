@@ -22,13 +22,19 @@ function fakeApi(notifications: Notification[], responses: Record<string, unknow
   const api: Api = {
     async get<T>(path: string) {
       const body = lookup(path);
-      // The real `get` reads one page, so a list has to go through `getAll`.
+      // The real `get` reads one page, so a list has to go through `getAll`,
+      // including lists GitHub wraps in an object with a `total_count`.
       if (Array.isArray(body)) throw new Error(`get() on a list: ${path}`);
+      if (body && typeof body === "object" && "total_count" in body) {
+        throw new Error(`get() on a wrapped list: ${path}`);
+      }
       return body as T;
     },
     async getAll<T>(path: string, key?: string) {
       if (path.startsWith("notifications")) return notifications as T[];
       const body = lookup(path) as Record<string, unknown>;
+      // Keep wrapped-list fixtures shaped like GitHub's, so `get` above can tell them apart.
+      if (key && !("total_count" in body)) throw new Error(`wrapped list fixture without total_count: ${path}`);
       return (key ? body[key] : body) as T[];
     },
     async markDone(id: string) {
@@ -320,6 +326,7 @@ describe("--keep-failed", () => {
       const { api, marked, requested } = fakeApi(inbox, {
         ...responses,
         [runsPath("sha11")]: {
+          total_count: 2,
           workflow_runs: [
             { check_suite_id: 1, workflow_id: 10, event: "pull_request" },
             { check_suite_id: 2, workflow_id: 10, event: "pull_request" },
