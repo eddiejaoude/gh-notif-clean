@@ -235,10 +235,30 @@ test("findGh on Windows takes only paths from a drive or a UNC share", () => {
   ]);
 });
 
-test("ghAuth without a gh to run fails as not logged in", () => {
+test("ghAuth without a gh to run says gh isn't found", () => {
   assert.throws(() => ghAuth({ GH_HOST: "invalid.invalid", PATH: "" }, "linux"), {
-    message: "gh is not logged in to invalid.invalid; run: gh auth login --hostname invalid.invalid",
+    message: "gh not found in GH_PATH or PATH; install GitHub CLI: https://cli.github.com",
   });
+});
+
+test("ghAuth with a gh it can't start says so, not that gh isn't logged in", () => {
+  // The check says the file is there to run, but it doesn't exist.
+  assert.throws(() => ghAuth({ GH_HOST: "invalid.invalid", PATH: "/nonexistent-gh-notif-clean" }, "linux", () => true), {
+    message: /^can't run \/nonexistent-gh-notif-clean\/gh: .*ENOENT/,
+  });
+});
+
+test("ghAuth with a gh that exits with an error says gh isn't logged in", { skip: process.platform === "win32" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "gh-notif-clean-"));
+  try {
+    writeFileSync(join(dir, "gh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+
+    assert.throws(() => ghAuth({ GH_HOST: "invalid.invalid", PATH: dir }), {
+      message: "gh is not logged in to invalid.invalid; run: gh auth login --hostname invalid.invalid",
+    });
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
 });
 
 test("ghAuth runs the first gh file in PATH it can execute", { skip: process.platform === "win32" }, () => {

@@ -109,8 +109,8 @@ run "$neutral" "$bin" --keep-reason bogus
 check "--keep-reason bogus exits 2" \
   '[[ $status == 2 && -z $out && $err == "--keep-reason: unknown reason "*bogus* && -z $calls ]]'
 
-# A gh the binary can't spawn ends in "gh is not logged in", as a host gh has no login for
-# does, so the stub's log shows that gh ran, and the DNS error that its token reached fetch.
+# The stub's log shows that the binary found and ran gh, and the DNS error that gh's token
+# reached fetch.
 run "$neutral" GH_HOST=invalid.invalid "$bin" --dry-run
 check "gh is called once and its token reaches the network" \
   '[[ $status == 1 && -z $out && $calls == "auth token --hostname invalid.invalid" &&

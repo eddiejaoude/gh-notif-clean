@@ -77,23 +77,33 @@ function isExecutableFile(file: string): boolean {
   }
 }
 
-/** Token and API base URL for the host `gh` is logged in to (`GH_HOST`, default github.com). */
+/**
+ * Token and API base URL for the host `gh` is logged in to (`GH_HOST`, default github.com).
+ * Tells apart a gh it can't find, one it can't start, and one that ran and failed.
+ */
 export function ghAuth(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
+  isExecutable: (file: string) => boolean = isExecutableFile,
 ): { token: string; baseUrl: string } {
   const host = env.GH_HOST ?? "github.com";
-  const gh = findGh(env, platform, isExecutableFile);
+  const gh = findGh(env, platform, isExecutable);
+  if (gh === undefined) {
+    throw new Error("gh not found in GH_PATH or PATH; install GitHub CLI: https://cli.github.com");
+  }
   let token: string;
   try {
-    if (gh === undefined) throw new Error("no gh in PATH");
     token = execFileSync(gh, ["auth", "token", "--hostname", host], {
       encoding: "utf8",
       env,
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
-  } catch {
-    throw new Error(`gh is not logged in to ${host}; run: gh auth login --hostname ${host}`);
+  } catch (error) {
+    // Only a gh that ran has an exit status.
+    if (error instanceof Error && "status" in error && typeof error.status === "number") {
+      throw new Error(`gh is not logged in to ${host}; run: gh auth login --hostname ${host}`);
+    }
+    throw new Error(`can't run ${gh}: ${error instanceof Error ? error.message : String(error)}`);
   }
   const baseUrl = host === "github.com" ? "https://api.github.com" : `https://${host}/api/v3`;
   return { token, baseUrl };
