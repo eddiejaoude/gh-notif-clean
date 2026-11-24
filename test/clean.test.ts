@@ -332,8 +332,8 @@ describe("--keep-failed", () => {
           [runsPath("sha11")]: {
             total_count: 2,
             workflow_runs: [
-              { check_suite_id: 1, workflow_id: 10, event: "pull_request" },
-              { check_suite_id: 2, workflow_id: 10, event: "pull_request" },
+              { check_suite_id: 1, workflow_id: 10, event: "pull_request", path: ".github/workflows/ci.yml" },
+              { check_suite_id: 2, workflow_id: 10, event: "pull_request", path: ".github/workflows/ci.yml" },
             ],
           },
         });
@@ -383,8 +383,8 @@ describe("--keep-failed", () => {
         [runsPath("sha13")]: {
           total_count: 2,
           workflow_runs: [
-            { check_suite_id: 1, workflow_id: 10, event: "workflow_dispatch" },
-            { check_suite_id: 2, workflow_id: 10, event: "pull_request" },
+            { check_suite_id: 1, workflow_id: 10, event: "workflow_dispatch", path: ".github/workflows/ci.yml" },
+            { check_suite_id: 2, workflow_id: 10, event: "pull_request", path: ".github/workflows/ci.yml" },
           ],
         },
       });
