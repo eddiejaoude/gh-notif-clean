@@ -32,15 +32,30 @@ jobs:
             echo "::error::$GITHUB_REF_NAME doesn't point to a commit on main. Delete the tag and tag a commit on main."
             exit 1
           fi
-      # Runs script/build.sh, which downloads and checks the Bun it builds with, creates a
-      # draft release with generated notes and every file in dist/, then attests each file.
-      # A tag with a "-", such as v0.2.0-rc.1, makes a prerelease, which gh extension install
-      # skips.
-      - uses: cli/gh-extension-precompile@76961aa3bd1123d0a6fd42d0a41aca0696937c39 # v2.2.0
+      # The next three steps replace cli/gh-extension-precompile, which downloads and runs
+      # Go before any build, in this job that can publish and attest, though this build
+      # doesn't use Go.
+      #
+      # Downloads and checks the Bun it builds with, and writes the six binaries to dist/.
+      - run: script/build.sh
+      # A draft with generated notes and every file in dist/ as an asset of the same name. A
+      # tag with a "-", such as v0.2.0-rc.1, makes a prerelease, which gh extension install
+      # skips. A re-run uploads into the draft that the first run created.
+      - name: Create the draft release
+        run: |
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null; then
+            gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber -- dist/*
+          else
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --prerelease="$PRERELEASE" \
+              --title "gh-notif-clean ${TAG#v}" --generate-notes -- dist/*
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ contains(github.ref_name, '-') }}
+      - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
-          build_script_override: script/build.sh
-          draft_release: true
-          generate_attestations: true
+          subject-path: dist/*
       # The same files as the draft's assets, for verify and publish, whose tokens can't
       # read a draft.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
