@@ -26,7 +26,8 @@ export class HttpError extends Error {
  * when it runs an extension, or else the first `gh` in `PATH`. Empty and relative `PATH`
  * entries are skipped, so the result never depends on the working directory or on the
  * runtime's own search order. On Windows, variable names match in any case, a quoted entry
- * is unquoted, and each entry is tried with each `PATHEXT` extension in order.
+ * is unquoted, and each entry is tried with each `PATHEXT` extension that a process can be
+ * started from (.com, .exe, .bat or .cmd), in `PATHEXT`'s order.
  */
 export function findGh(
   env: NodeJS.ProcessEnv,
@@ -41,12 +42,14 @@ export function findGh(
   const ghPath = read("GH_PATH");
   if (ghPath && path.isAbsolute(ghPath)) return ghPath;
 
-  // Windows' own default when PATHEXT is unset.
+  // Windows' own default when PATHEXT is unset or empty. PATHEXT also lists script types
+  // such as .js, which a process can't be started from.
   const names = windows
     ? (read("PATHEXT") || ".COM;.EXE;.BAT;.CMD")
         .split(";")
-        .filter((ext) => ext !== "")
-        .map((ext) => `gh${ext.toLowerCase()}`)
+        .map((ext) => ext.toLowerCase())
+        .filter((ext) => [".com", ".exe", ".bat", ".cmd"].includes(ext))
+        .map((ext) => `gh${ext}`)
     : ["gh"];
   for (const entry of (read("PATH") ?? "").split(path.delimiter)) {
     const dir = windows ? entry.replace(/^"(.*)"$/, "$1") : entry;

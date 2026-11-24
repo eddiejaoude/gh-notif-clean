@@ -186,6 +186,21 @@ test("findGh on Windows tries each PATH entry with each PATHEXT extension in ord
   assert.equal(findGh({ PATH: "C:\\b", PATHEXT: ".COM;.EXE" }, "win32", fs.isExecutable), "C:\\b\\gh.com");
 });
 
+test("findGh on Windows takes from PATHEXT only extensions a process starts from", () => {
+  const fs = files("C:\\npm\\gh.js", "C:\\npm\\gh.vbs", "C:\\gh\\gh.exe");
+  const PATHEXT = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
+
+  assert.equal(findGh({ PATH: "C:\\npm;C:\\gh", PATHEXT }, "win32", fs.isExecutable), "C:\\gh\\gh.exe");
+  assert.deepEqual(fs.checked, [
+    "C:\\npm\\gh.com",
+    "C:\\npm\\gh.exe",
+    "C:\\npm\\gh.bat",
+    "C:\\npm\\gh.cmd",
+    "C:\\gh\\gh.com",
+    "C:\\gh\\gh.exe",
+  ]);
+});
+
 test("findGh on Windows skips relative entries, unquotes entries and reads Path in any case", () => {
   const fs = files("gh.exe", "C:gh.exe", "bin\\gh.exe", "C:\\Program Files\\GitHub CLI\\gh.exe");
 
