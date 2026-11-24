@@ -135,10 +135,14 @@ async function main(argv: string[]): Promise<number> {
   return failed > 0 ? 1 : 0;
 }
 
+// Set the exit code rather than call process.exit(): writes to a pipe are asynchronous, and
+// process.exit() ends the process before they drain, cutting piped output off at 64 KiB.
 main(process.argv.slice(2)).then(
-  (code) => process.exit(code),
+  (code) => {
+    process.exitCode = code;
+  },
   (error: unknown) => {
     process.stderr.write(`gh notif-clean: ${error instanceof Error ? error.message : String(error)}\n`);
-    process.exit(1);
+    process.exitCode = 1;
   },
 );
