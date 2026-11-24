@@ -103,6 +103,8 @@ git tag v0.2.0 && git push origin v0.2.0
 
 Never create a release by hand: the workflow then uploads into it afterwards, and until it does, the latest release has no binaries, so new installs get the script and upgrades of binary installs fail.
 
+The check that the tag is on `main` catches a slip, not a person: a pushed tag runs the workflow files of the commit it points to, so anyone who can push a `v*` tag can run a release with that commit's `release.yml`. A tag ruleset that lets only the maintainer create `v*` tags is what limits who can release. A deployment environment with required reviewers, set on the release and publish jobs, would also make each release wait for a second person's approval. Both are repository settings, outside this repository's files.
+
 When a job fails:
 
 - **The tag isn't on `main`**: nothing was built. Delete the tag with `git push origin --delete <tag>` and tag a commit on `main`.
