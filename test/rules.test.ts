@@ -743,6 +743,14 @@ describe("parseIgnoreList (GH_NOTIF_CLEAN_IGNORE)", () => {
     ]);
   });
 
+  test("also splits on spaces and newlines", () => {
+    assert.deepEqual(parseIgnoreList("cla-assistant[bot] github-actions[bot]\nCopilot"), [
+      "cla-assistant[bot]",
+      "github-actions[bot]",
+      "Copilot",
+    ]);
+  });
+
   test("is empty when unset or blank", () => {
     assert.deepEqual(parseIgnoreList(undefined), []);
     assert.deepEqual(parseIgnoreList(" , "), []);

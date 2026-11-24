@@ -24,7 +24,8 @@ Flags:
   -h, --help                Show this help
 
 Environment:
-  GH_NOTIF_CLEAN_IGNORE     Comma-separated accounts to ignore on every run, like --ignore
+  GH_NOTIF_CLEAN_IGNORE     Accounts to ignore on every run, like --ignore, separated
+                            by commas or whitespace
 
 Ignored by default: ${DEFAULT_IGNORED.join(", ")}
 Reasons for --keep-reason: ${NOTIFICATION_REASONS.join(", ")}
