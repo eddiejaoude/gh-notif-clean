@@ -188,7 +188,7 @@ script/build.sh                                         # the six binaries, into
 script/test-binary.sh dist/gh-notif-clean-darwin-arm64  # the checks CI runs on each binary, on yours
 ```
 
-`script/test-binary.sh` never reaches GitHub or uses your login: it runs the binary with nothing but a stub `gh` on `PATH`, logged in only to the unresolvable host `invalid.invalid`, and in a directory whose `bunfig.toml` and `.env` must take no effect. Checking a Windows binary needs Bun as well, to compile the stub `gh.exe`. Dependabot doesn't update `.bun-version`: to change it, also replace `.bun-sha256` with the six zips' lines from that Bun release's `SHASUMS256.txt`, and CI builds and checks the binaries with the new version.
+`script/test-binary.sh` never reaches GitHub or uses your login: it runs the binary with nothing on `PATH` but the working directory and a stub `gh`, logged in only to the unresolvable host `invalid.invalid`, with the variables that pick `gh`, its host, a proxy or Bun's options unset, and in a directory whose `bunfig.toml`, `.env` and copy of the stub must take no effect. Checking a Windows binary needs Bun as well, to compile the stub `gh.exe`. Dependabot doesn't update `.bun-version`: to change it, also replace `.bun-sha256` with the six zips' lines from that Bun release's `SHASUMS256.txt`, and CI builds and checks the binaries with the new version.
 
 | Path | Contents |
 |---|---|
