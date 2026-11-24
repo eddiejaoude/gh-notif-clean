@@ -20,7 +20,14 @@ gh extension install eddiejaoude/gh-notif-clean
 gh extension upgrade notif-clean   # later, to update
 ```
 
-`gh` installs the binary for your system: `darwin-arm64`, `darwin-amd64`, `linux-arm64`, `linux-amd64`, `windows-arm64` or `windows-amd64`. GitHub Actions builds them from the release's tag and attests each one, so `gh attestation verify <file> -R eddiejaoude/gh-notif-clean` shows where a binary came from.
+`gh` installs the binary for your system: `darwin-arm64`, `darwin-amd64`, `linux-arm64`, `linux-amd64`, `windows-arm64` or `windows-amd64`. GitHub Actions builds them from the release's tag and attests each one. To check where a binary came from, download it from the release and verify that file:
+
+```sh
+gh release download -R eddiejaoude/gh-notif-clean -p gh-notif-clean-darwin-arm64
+gh attestation verify gh-notif-clean-darwin-arm64 -R eddiejaoude/gh-notif-clean
+```
+
+Verify the download, not the installed copy: on Apple Silicon, `gh` signs the binary again when it installs it, so the installed file no longer matches its attestation. On other systems, `gh` installs the file as downloaded.
 
 The binary sends its requests through the proxy in `HTTPS_PROXY`, or in `ALL_PROXY` when that isn't set, in upper or lower case, except to hosts listed in `NO_PROXY`. Every request it makes is `https:`, so `HTTP_PROXY` doesn't apply, and a SOCKS proxy in `ALL_PROXY` is ignored. Run from source, Node uses a proxy only with `NODE_USE_ENV_PROXY=1` (Node 22.21 or later), and never reads `ALL_PROXY`.
 
