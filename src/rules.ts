@@ -192,22 +192,22 @@ export function needsWorkflowRuns(checkRuns: readonly CheckRun[]): boolean {
   );
 }
 
-/** Same-named runs that passed and started after `failed` completed. */
-function laterPasses(failed: CheckRun, checkRuns: readonly CheckRun[]): CheckRun[] {
-  return checkRuns.filter((run) => run.name === failed.name && run.conclusion === "success" && startedAfter(run, failed));
+/** Same-named runs that passed and started after `earlier` completed. */
+function laterPasses(earlier: CheckRun, checkRuns: readonly CheckRun[]): CheckRun[] {
+  return checkRuns.filter((run) => run.name === earlier.name && run.conclusion === "success" && startedAfter(run, earlier));
 }
 
 /**
  * Whether `later` ran in another workflow run of the same workflow and event
- * as `failed`, the key `gh pr checks` keeps the newest check by. A check run
+ * as `earlier`, the key `gh pr checks` keeps the newest check by. A check run
  * outside GitHub Actions, or whose workflow run wasn't listed, matches nothing.
  */
-function newerRunOfSameWorkflow(failed: CheckRun, later: CheckRun, bySuite: ReadonlyMap<number, WorkflowRun>): boolean {
-  if (!failed.check_suite || !later.check_suite || failed.check_suite.id === later.check_suite.id) return false;
-  const failedRun = bySuite.get(failed.check_suite.id);
+function newerRunOfSameWorkflow(earlier: CheckRun, later: CheckRun, bySuite: ReadonlyMap<number, WorkflowRun>): boolean {
+  if (!earlier.check_suite || !later.check_suite || earlier.check_suite.id === later.check_suite.id) return false;
+  const earlierRun = bySuite.get(earlier.check_suite.id);
   const laterRun = bySuite.get(later.check_suite.id);
-  if (!failedRun || !laterRun) return false;
-  return failedRun.workflow_id === laterRun.workflow_id && failedRun.event === laterRun.event;
+  if (!earlierRun || !laterRun) return false;
+  return earlierRun.workflow_id === laterRun.workflow_id && earlierRun.event === laterRun.event;
 }
 
 /** Whether `later` started after `earlier` completed; a missing time doesn't prove it. */
