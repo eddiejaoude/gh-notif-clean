@@ -316,7 +316,8 @@ test("a wait to retry ends at once when the client's signal aborts", async () =>
   await assert.rejects(request, { name: "AbortError" });
   const elapsed = performance.now() - started;
   assert.equal(calls, 1);
-  assert.ok(elapsed < 5_000, `the request ended after ${Math.round(elapsed)} ms, so its wait to retry wasn't cut short`);
+  // Half the wait: a request that honoured the abort only once its wait ran out would end after 5 s.
+  assert.ok(elapsed < 2_500, `the request ended after ${Math.round(elapsed)} ms, not soon after the abort at 50 ms`);
 });
 
 test("withSignal on a client that has a signal ties its requests to both", async () => {
