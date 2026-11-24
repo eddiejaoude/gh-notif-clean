@@ -26,6 +26,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # main's history, for the next step
+          # Don't leave the token on disk, where the build could read it. No later step
+          # fetches or pushes with git: gh and the actions get the token from env or inputs.
+          persist-credentials: false
       - name: Check that the tag's commit is on main
         run: |
           if ! git merge-base --is-ancestor HEAD origin/main; then
