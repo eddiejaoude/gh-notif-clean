@@ -33,6 +33,8 @@ function fakeApi(notifications: Notification[], responses: Record<string, unknow
     async getAll<T>(path: string, key?: string) {
       if (path.startsWith("notifications")) return notifications as T[];
       const body = lookup(path) as Record<string, unknown>;
+      // Keep wrapped-list fixtures shaped like GitHub's, so `get` above can tell them apart.
+      if (key && !("total_count" in body)) throw new Error(`wrapped list fixture without total_count: ${path}`);
       return (key ? body[key] : body) as T[];
     },
     async markDone(id: string) {
