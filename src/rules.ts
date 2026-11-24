@@ -135,12 +135,16 @@ const FAILED_CONCLUSIONS: Record<string, true> = { failure: true, timed_out: tru
 
 /**
  * Workflow events whose runs a PR's check list includes: the ones GitHub
- * documents as evaluated for a PR, plus `merge_group` and `dynamic`, whose
- * runs it lists too. A run for any other event, such as `workflow_dispatch` on
- * the PR's branch, is on the head commit but not in `gh pr checks` or on the
- * PR page. Only a run left out can be excused by a listed pass, so the set
- * errs toward including: Copilot's `dynamic` review run is left out of the
- * list but judged as if listed.
+ * documents as evaluated for a PR, plus `merge_group`, whose runs it lists
+ * too, and `dynamic`, below. A run for any other event, such as
+ * `workflow_dispatch` on the PR's branch, is on the head commit but not in
+ * `gh pr checks` or on the PR page. An entry works both ways: a failed run for
+ * a listed event can't be excused by another event's pass, and a pass for a
+ * listed event excuses a failed run for an event left out. So add an event
+ * only once GitHub is seen to list its runs. `dynamic` runs are listed for
+ * some workflows (CodeQL default setup, Pages builds) and not for others
+ * (Copilot's review, Dependabot's updates); the entry changes nothing either
+ * way, because a dynamic workflow has no runs for another event.
  * https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#checks-from-some-workflow-jobs-are-not-evaluated
  */
 const CHECK_LIST_EVENTS: Record<string, true> = {
