@@ -207,6 +207,12 @@ const refusedHosts = [
   "evil.example/.github.com",
   " octocorp.ghe.com",
   "octocorp.ghe.com ",
+  "github.com\nevil.example",
+  // Names a URL reads as an IP address, or can't read.
+  "4294967296",
+  "1.2.3.4.5",
+  "2130706433",
+  "0x7f.1",
 ];
 
 test("apiBaseUrl accepts only a plain host name", () => {

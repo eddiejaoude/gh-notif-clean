@@ -90,13 +90,14 @@ function isExecutableFile(file: string): boolean {
  * does for a nested GHE.com name from its tenant's, yet it isn't refused: `garage.github.com`,
  * which gh maps to the Enterprise Server form by a special case, gets that form only by falling
  * through here, and the token stays on github.com's own domain. A host name may hold only
- * letters, digits, dots and hyphens.
+ * letters, digits, dots and hyphens, and must parse back as itself in a URL, which rules out
+ * names a URL reads as an IP address, such as 2130706433.
  */
 export function apiBaseUrl(host: string): string {
-  if (!/^[a-z0-9.-]+$/i.test(host)) {
+  const name = host.toLowerCase();
+  if (!/^[a-z0-9.-]+$/i.test(host) || URL.parse(`https://${name}`)?.hostname !== name) {
     throw new Error(`GH_HOST must be a host name, such as github.com or SUBDOMAIN.ghe.com; got ${JSON.stringify(host)}`);
   }
-  const name = host.toLowerCase();
   if (name === "github.com") return "https://api.github.com";
   if (name === "github.localhost" || name.endsWith(".github.localhost")) {
     throw new Error(`GH_HOST ${host} isn't supported: gh reaches github.localhost over plain http`);
