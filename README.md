@@ -21,12 +21,14 @@ gh extension install eddiejaoude/gh-notif-clean
 gh extension upgrade notif-clean   # later, to update
 ```
 
-`gh` installs the binary for your system: `darwin-arm64`, `darwin-amd64`, `linux-arm64`, `linux-amd64`, `windows-arm64` or `windows-amd64`. GitHub Actions builds them from the release's tag and attests each one. To check where a binary came from, download it from the release and verify that file:
+`gh` installs the binary for your system: `darwin-arm64`, `darwin-amd64`, `linux-arm64`, `linux-amd64`, `windows-arm64` or `windows-amd64`. GitHub Actions builds them from the release's tag and attests each one. To check where a binary came from, download it from its release and verify that file. In both commands, put the tag that `gh extension list` shows for your install in place of `v0.2.0`, and your system's file in place of `gh-notif-clean-darwin-arm64`; the two Windows files end in `.exe`, such as `gh-notif-clean-windows-amd64.exe`:
 
 ```sh
-gh release download -R eddiejaoude/gh-notif-clean -p gh-notif-clean-darwin-arm64
-gh attestation verify gh-notif-clean-darwin-arm64 -R eddiejaoude/gh-notif-clean
+gh release download v0.2.0 -R eddiejaoude/gh-notif-clean -p gh-notif-clean-darwin-arm64
+gh attestation verify gh-notif-clean-darwin-arm64 -R eddiejaoude/gh-notif-clean --signer-workflow eddiejaoude/gh-notif-clean/.github/workflows/release.yml --source-ref refs/tags/v0.2.0
 ```
+
+With `--signer-workflow` and `--source-ref`, an attestation passes only if this repository's release workflow made it for that tag; one from another workflow, a branch or another tag fails. `--source-ref` needs GitHub CLI 2.68.0 or later. Before 2.102.0, `--signer-workflow` checks only the start of the workflow's path, so a workflow such as `.github/workflows/release.yml.other.yml` passes too.
 
 Verify the download, not the installed copy: on Apple Silicon, `gh` signs the binary again when it installs it, so the installed file no longer matches its attestation. On other systems, `gh` installs the file as downloaded.
 
