@@ -4,19 +4,26 @@
 # cli/gh-extension-precompile, which passes the tag as $1 (unused here) and uploads
 # everything in dist/. CI runs it on every pull request.
 #
-# Each executable is built on the Bun runtime from that version's release zip, which is
-# downloaded and checked against .bun-sha256 first. To change the Bun version, update
-# .bun-version and copy the six zips' lines from that release's SHASUMS256.txt into
+# It needs no Bun installed. It downloads that version's release zips, checks each against
+# .bun-sha256, builds with the bun from the zip for the machine it runs on, and builds each
+# executable on the runtime from its own platform's zip. That machine must be macOS, or
+# Linux with glibc, on x64 or arm64: Windows isn't a build host. To change the Bun version,
+# update .bun-version and copy the six zips' lines from that release's SHASUMS256.txt into
 # .bun-sha256.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-want=$(<.bun-version)
-have=$(bun --version)
-if [[ $have != "$want" ]]; then
-  echo "script/build.sh: .bun-version pins Bun $want, but bun is $have" >&2
-  exit 1
-fi
+version=$(<.bun-version)
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) host=darwin-aarch64 ;;
+  Darwin-x86_64) host=darwin-x64 ;;
+  Linux-aarch64 | Linux-arm64) host=linux-aarch64 ;;
+  Linux-x86_64) host=linux-x64 ;;
+  *)
+    echo "script/build.sh: builds on macOS or Linux, on x64 or arm64, not on $(uname -s) $(uname -m)" >&2
+    exit 1
+    ;;
+esac
 
 # bun build --compile takes a file named like bun-linux-x64-v1.4.5 in the working directory
 # as the runtime for that target, unchecked.
@@ -34,6 +41,30 @@ else
 fi
 runtimes=$(mktemp -d)
 trap 'rm -rf "$runtimes"' EXIT
+
+# fetch RUNTIME: downloads Bun's release zip for RUNTIME, such as linux-x64, checks it
+# against .bun-sha256 and unpacks it into $runtimes/bun-RUNTIME, once per runtime.
+fetch() {
+  local zip=bun-$1.zip pinned got
+  if [[ -d $runtimes/bun-$1 ]]; then
+    return
+  fi
+  pinned=$(awk -v zip="$zip" '$2 == zip { print $1 }' .bun-sha256)
+  if [[ -z $pinned ]]; then
+    echo "script/build.sh: .bun-sha256 has no SHA-256 for $zip" >&2
+    exit 1
+  fi
+  curl -fsSL --retry 3 -o "$runtimes/$zip" "https://github.com/oven-sh/bun/releases/download/bun-v$version/$zip"
+  got=$("${sha256[@]}" "$runtimes/$zip" | cut -d' ' -f1)
+  if [[ $got != "$pinned" ]]; then
+    echo "script/build.sh: $zip has SHA-256 $got, but .bun-sha256 pins $pinned" >&2
+    exit 1
+  fi
+  unzip -q "$runtimes/$zip" -d "$runtimes"
+}
+
+fetch "$host"
+bun=$runtimes/bun-$host/bun
 rm -rf dist
 
 # Bun target, the runtime's name in Bun's release, and the asset name's suffix: gh installs
@@ -48,19 +79,7 @@ targets=(
 )
 for target in "${targets[@]}"; do
   IFS=: read -r bun_target runtime asset <<<"$target"
-  zip=bun-$runtime.zip
-  pinned=$(awk -v zip="$zip" '$2 == zip { print $1 }' .bun-sha256)
-  if [[ -z $pinned ]]; then
-    echo "script/build.sh: .bun-sha256 has no SHA-256 for $zip" >&2
-    exit 1
-  fi
-  curl -fsSL --retry 3 -o "$runtimes/$zip" "https://github.com/oven-sh/bun/releases/download/bun-v$want/$zip"
-  got=$("${sha256[@]}" "$runtimes/$zip" | cut -d' ' -f1)
-  if [[ $got != "$pinned" ]]; then
-    echo "script/build.sh: $zip has SHA-256 $got, but .bun-sha256 pins $pinned" >&2
-    exit 1
-  fi
-  unzip -q "$runtimes/$zip" -d "$runtimes"
+  fetch "$runtime"
   exe=$runtimes/bun-$runtime/bun
   if [[ $runtime == windows-* ]]; then
     exe+=.exe
@@ -69,7 +88,7 @@ for target in "${targets[@]}"; do
   # By default the executable loads .env and bunfig.toml from the directory it runs in,
   # which is often a checkout of someone else's repository. A bunfig.toml can preload
   # any script, and a .env can set GH_HOST, so both are switched off.
-  bun build src/cli.ts --compile --target="bun-$bun_target" --compile-executable-path "$exe" \
+  "$bun" build src/cli.ts --compile --target="bun-$bun_target" --compile-executable-path "$exe" \
     --no-compile-autoload-dotenv --no-compile-autoload-bunfig \
     --outfile "dist/gh-notif-clean-$asset"
 done

@@ -181,14 +181,14 @@ npm test           # node:test, no network access
 
 `gh extension install .` in your clone runs your working copy, from source with Node.
 
-The release binaries are compiled with [Bun](https://bun.sh), at the version in `.bun-version`. `script/build.sh` builds each one on the Bun runtime from that version's release zip for its platform, which it downloads and checks against the SHA-256 in `.bun-sha256` first, so it also needs `curl` and `unzip`. To build and check them yourself, install that version of Bun, then:
+The release binaries are compiled with [Bun](https://bun.sh), at the version in `.bun-version`. `script/build.sh` needs no Bun installed: it downloads that version's release zips, checks each against the SHA-256 in `.bun-sha256`, builds with the `bun` from the zip for your machine, and builds each binary on the runtime from its own platform's zip. It runs on macOS, or Linux with glibc, on x64 or arm64, and needs `curl` and `unzip`; Windows isn't a build host. To build and check the binaries yourself:
 
 ```sh
 script/build.sh                                         # the six binaries, into dist/
 script/test-binary.sh dist/gh-notif-clean-darwin-arm64  # the checks CI runs on each binary, on yours
 ```
 
-`script/test-binary.sh` never reaches GitHub or uses your login: it runs the binary with nothing on `PATH` but the working directory and a stub `gh`, logged in only to the unresolvable host `invalid.invalid`, with the variables that pick `gh`, its host, a proxy or Bun's options unset, and in a directory whose `bunfig.toml`, `.env` and copy of the stub must take no effect. Checking a Windows binary needs Bun as well, to compile the stub `gh.exe`. Dependabot doesn't update `.bun-version`: to change it, also replace `.bun-sha256` with the six zips' lines from that Bun release's `SHASUMS256.txt`, and CI builds and checks the binaries with the new version.
+`script/test-binary.sh` never reaches GitHub or uses your login: it runs the binary with nothing on `PATH` but the working directory and a stub `gh`, logged in only to the unresolvable host `invalid.invalid`, with the variables that pick `gh`, its host, a proxy or Bun's options unset, and in a directory whose `bunfig.toml`, `.env` and copy of the stub must take no effect. Checking a Windows binary needs Bun installed, to compile the stub `gh.exe`. Dependabot doesn't update `.bun-version`: to change it, also replace `.bun-sha256` with the six zips' lines from that Bun release's `SHASUMS256.txt`, and CI builds and checks the binaries with the new version.
 
 | Path | Contents |
 |---|---|
