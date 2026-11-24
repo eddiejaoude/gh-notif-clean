@@ -67,7 +67,11 @@ jobs:
       - run: gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$ASSET" -D dist
         env:
           GH_TOKEN: ${{ github.token }}
-      - run: gh attestation verify "dist/$ASSET" -R "$GITHUB_REPOSITORY"
+      # Built by this workflow from this tag, not merely by some workflow in the repository.
+      - run: |
+          gh attestation verify "dist/$ASSET" -R "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --source-ref "refs/tags/$TAG"
         env:
           GH_TOKEN: ${{ github.token }}
       # No token in this step's environment, and the binary only ever runs the stub gh.
