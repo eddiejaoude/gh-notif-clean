@@ -28,7 +28,7 @@ gh release download v0.2.0 -R eddiejaoude/gh-notif-clean -p gh-notif-clean-darwi
 gh attestation verify gh-notif-clean-darwin-arm64 -R eddiejaoude/gh-notif-clean --signer-workflow eddiejaoude/gh-notif-clean/.github/workflows/release.yml --source-ref refs/tags/v0.2.0
 ```
 
-With `--signer-workflow` and `--source-ref`, an attestation passes only if this repository's release workflow made it for that tag; one from another workflow, a branch or another tag fails. `--source-ref` needs GitHub CLI 2.68.0 or later.
+With `--signer-workflow` and `--source-ref`, an attestation passes only if this repository's release workflow made it for that tag; one from another workflow, a branch or another tag fails. `--source-ref` needs GitHub CLI 2.68.0 or later. Before 2.102.0, `--signer-workflow` checks only the start of the workflow's path, so a workflow such as `.github/workflows/release.yml.other.yml` passes too.
 
 Verify the download, not the installed copy: on Apple Silicon, `gh` signs the binary again when it installs it, so the installed file no longer matches its attestation. On other systems, `gh` installs the file as downloaded.
 
