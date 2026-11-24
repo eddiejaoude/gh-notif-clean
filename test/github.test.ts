@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { createApi, findGh, ghAuth, HttpError } from "../src/github.ts";
+import { apiBaseUrl, createApi, findGh, ghAuth, HttpError } from "../src/github.ts";
 
 const json = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), { ...init, headers: { "content-type": "application/json", ...init.headers } });
@@ -120,6 +120,130 @@ test("GHES: requests on the host's origin carry the token, others throw", async 
     ["https://ghe.example/api/v3/repos/x/y/issues/2", "GET", "Bearer t"],
     ["https://ghe.example/api/v3/notifications/threads/3", "DELETE", "Bearer t"],
   ]);
+});
+
+test("GHE.com: requests on the tenant's API origin carry the token, its web host and other tenants throw", async () => {
+  const calls: [string, string | undefined, string | null][] = [];
+  const api = createApi({
+    token: "t",
+    baseUrl: apiBaseUrl("octocorp.ghe.com"),
+    fetch: async (url, init) => {
+      calls.push([String(url), init?.method, new Headers(init?.headers).get("authorization")]);
+      return json([]);
+    },
+  });
+
+  await api.get("repos/x/y/pulls/1");
+  await api.get("https://api.octocorp.ghe.com/repos/x/y/issues/2");
+  await api.markDone("3");
+  for (const url of [
+    "https://octocorp.ghe.com/api/v3/repos/x/y",
+    "https://api.other.ghe.com/repos/x/y",
+    "https://api.github.com/repos/x/y",
+  ]) {
+    await assert.rejects(api.get(url), /refusing to send the GitHub token/);
+  }
+  assert.deepEqual(calls, [
+    ["https://api.octocorp.ghe.com/repos/x/y/pulls/1", "GET", "Bearer t"],
+    ["https://api.octocorp.ghe.com/repos/x/y/issues/2", "GET", "Bearer t"],
+    ["https://api.octocorp.ghe.com/notifications/threads/3", "DELETE", "Bearer t"],
+  ]);
+});
+
+test("apiBaseUrl maps each kind of host to its REST API base", () => {
+  for (const [host, base] of [
+    // github.com has an API host of its own.
+    ["github.com", "https://api.github.com"],
+    ["GitHub.com", "https://api.github.com"],
+    // GitHub Enterprise Cloud with data residency: a tenant's API is on api.SUBDOMAIN.ghe.com.
+    ["octocorp.ghe.com", "https://api.octocorp.ghe.com"],
+    ["OctoCorp.GHE.com", "https://api.octocorp.ghe.com"],
+    ["octo-corp1.ghe.com", "https://api.octo-corp1.ghe.com"],
+    // GitHub Enterprise Server, and any other host.
+    ["ghe.example", "https://ghe.example/api/v3"],
+    ["10.0.0.5", "https://10.0.0.5/api/v3"],
+    ["ghe-01.corp.example", "https://ghe-01.corp.example/api/v3"],
+    ["ghe.com", "https://ghe.com/api/v3"],
+    ["notghe.com", "https://notghe.com/api/v3"],
+    ["octocorp.ghe.com.example", "https://octocorp.ghe.com.example/api/v3"],
+    // gh uses https://api.HOST for a subdomain of github.com; here it gets the Enterprise Server form.
+    ["www.github.com", "https://www.github.com/api/v3"],
+    // gh maps it to the Enterprise Server form by a special case; here it falls through to that.
+    ["garage.github.com", "https://garage.github.com/api/v3"],
+  ] as const) {
+    assert.equal(apiBaseUrl(host), base, host);
+  }
+});
+
+test("apiBaseUrl refuses a name with more than one label before .ghe.com, naming the tenant host", () => {
+  for (const [host, message] of [
+    ["api.octocorp.ghe.com", "GH_HOST api.octocorp.ghe.com isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com; use octocorp.ghe.com"],
+    ["A.B.ghe.com", "GH_HOST A.B.ghe.com isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com; use b.ghe.com"],
+    ["a.b.ghe.com", "GH_HOST a.b.ghe.com isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com; use b.ghe.com"],
+    [".ghe.com", "GH_HOST .ghe.com isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com"],
+  ] as const) {
+    assert.throws(() => apiBaseUrl(host), { message }, host);
+  }
+});
+
+test("apiBaseUrl refuses github.localhost, which gh reaches over plain http", () => {
+  for (const host of ["github.localhost", "GitHub.LocalHost", "api.github.localhost"]) {
+    assert.throws(() => apiBaseUrl(host), { message: `GH_HOST ${host} isn't supported: gh reaches github.localhost over plain http` }, host);
+  }
+  assert.equal(apiBaseUrl("notgithub.localhost"), "https://notgithub.localhost/api/v3");
+});
+
+// An isExecutable that finds no gh and records whether it was asked, so nothing ever runs.
+function noGh() {
+  const check = { looked: false, isExecutable: () => ((check.looked = true), false) };
+  return check;
+}
+
+const refusedHosts = [
+  "evil.example/.ghe.com",
+  "evil.example/x.ghe.com",
+  "evil.example#.ghe.com",
+  "evil.example?.ghe.com",
+  "user@evil.example/.ghe.com",
+  "evil.example:443/.ghe.com",
+  "evil.example/.github.com",
+  " octocorp.ghe.com",
+  "octocorp.ghe.com ",
+  "github.com\nevil.example",
+  // A URL hands it back unchanged, so only the character check refuses it.
+  "a_b.example",
+  // Names a URL rewrites as an IP address, or can't read.
+  "4294967296",
+  "1.2.3.4.5",
+  "2130706433",
+  "0x7f.1",
+];
+
+test("apiBaseUrl accepts only a plain host name", () => {
+  for (const host of refusedHosts) {
+    assert.throws(
+      () => apiBaseUrl(host),
+      { message: `GH_HOST must be a host name, such as github.com or SUBDOMAIN.ghe.com; got ${JSON.stringify(host)}` },
+      host,
+    );
+  }
+});
+
+test("ghAuth refuses a host before it looks for gh", () => {
+  for (const host of ["api.octocorp.ghe.com", "github.localhost", ...refusedHosts]) {
+    const gh = noGh();
+    assert.throws(() => ghAuth({ GH_HOST: host, PATH: "/nonexistent-gh-notif-clean" }, "linux", gh.isExecutable), /^Error: GH_HOST /, host);
+    assert.equal(gh.looked, false, host);
+  }
+});
+
+test("ghAuth accepts a plain host name and goes on to look for gh", () => {
+  // invalid.invalid and hostile.invalid are the hosts test/cli.test.ts and script/test-binary.sh use.
+  for (const host of ["github.com", "GitHub.com", "octocorp.ghe.com", "OctoCorp.GHE.com", "ghe.example", "invalid.invalid", "hostile.invalid"]) {
+    const gh = noGh();
+    assert.throws(() => ghAuth({ GH_HOST: host, PATH: "/nonexistent-gh-notif-clean" }, "linux", gh.isExecutable), /^Error: gh not found/, host);
+    assert.equal(gh.looked, true, host);
+  }
 });
 
 test("markDone refuses a thread id that isn't a number without calling fetch", async () => {
@@ -376,6 +500,16 @@ test("ghAuth runs the first gh file in PATH it can execute", { skip: process.pla
     assert.deepEqual(ghAuth({ PATH }), {
       token: ": auth token --hostname github.com",
       baseUrl: "https://api.github.com",
+    });
+    // An empty GH_HOST counts as unset, as it does for gh.
+    assert.deepEqual(ghAuth({ GH_HOST: "", PATH }), {
+      token: ": auth token --hostname github.com",
+      baseUrl: "https://api.github.com",
+    });
+    // A GHE.com tenant's API is on a host of its own too.
+    assert.deepEqual(ghAuth({ GH_HOST: "octocorp.ghe.com", PATH }), {
+      token: "octocorp.ghe.com: auth token --hostname octocorp.ghe.com",
+      baseUrl: "https://api.octocorp.ghe.com",
     });
   } finally {
     rmSync(dir, { recursive: true });
