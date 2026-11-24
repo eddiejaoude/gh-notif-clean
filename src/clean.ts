@@ -55,6 +55,8 @@ interface Subject {
   author?: { login: string } | null;
   head?: { sha: string };
   state?: string;
+  /** Who marked a discussion's current answer. `null` doesn't show that nobody did: see `loadActivity`. */
+  answer_chosen_by?: { login: string } | null;
 }
 
 async function loadActivity(api: Api, url: string, type: string, subject: Subject): Promise<ThreadActivity> {
@@ -64,6 +66,7 @@ async function loadActivity(api: Api, url: string, type: string, subject: Subjec
     reviewComments: [],
     commits: [],
     discussionComments: [],
+    answerChosenBy: null,
   };
   if (type === "PullRequest" || type === "Issue") {
     const issueUrl = url.replace("/pulls/", "/issues/");
@@ -75,8 +78,13 @@ async function loadActivity(api: Api, url: string, type: string, subject: Subjec
     Object.assign(activity, { timeline, reviewComments, commits });
   } else if (type === "Discussion") {
     // GitHub doesn't document its REST endpoints for repository discussions, so this rests on what the API
-    // returned when checked in November 2026, not on a published contract. The list is flat: replies to a
-    // comment come back alongside top-level comments, with `parent_id` set, and it pages like other lists.
+    // returned when checked in November 2026, not on a published contract.
+    // The discussion itself carries who marked its current answer. `null` doesn't show that nobody did: it
+    // also comes back when that account has since been deleted (`answer_chosen_at` stays set) and for an
+    // answer that records no one (only `answer_html_url` is set). Neither is counted.
+    activity.answerChosenBy = subject.answer_chosen_by?.login ?? null;
+    // The comment list is flat: replies to a comment come back alongside top-level comments, with
+    // `parent_id` set, and it pages like other lists.
     activity.discussionComments = await api.getAll<{ user: { login: string } | null }>(`${url}/comments`);
   }
   return activity;

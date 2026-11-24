@@ -25,6 +25,8 @@ export interface ThreadActivity {
   commits: readonly { author: Account | null }[];
   /** Comments on a discussion, threaded replies included. */
   discussionComments: readonly { user: Account | null }[];
+  /** Who marked a comment on the discussion as its answer. */
+  answerChosenBy: string | null;
 }
 
 /**
@@ -50,6 +52,7 @@ export function participants(activity: ThreadActivity): Set<string> {
   for (const comment of activity.reviewComments) add(comment.user);
   for (const commit of activity.commits) add(commit.author);
   for (const comment of activity.discussionComments) add(comment.user);
+  if (activity.answerChosenBy) logins.add(activity.answerChosenBy);
   return logins;
 }
 
