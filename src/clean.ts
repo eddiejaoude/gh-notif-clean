@@ -95,7 +95,7 @@ async function loadChecksReason(api: Api, prUrl: string, sha: string): Promise<s
     try {
       workflowRuns = await api.getAll<WorkflowRun>(`${repo}/actions/runs?head_sha=${sha}`, "workflow_runs");
     } catch {
-      // Without them no failure is excused, so the thread is kept for its failed checks.
+      // Without them nothing is excused, so the thread is kept for its failed or cancelled checks.
     }
   }
   return checksReason(statuses, checkRuns, workflowRuns);
