@@ -28,6 +28,8 @@ Flags:
   -h, --help                Show this help
 
 Environment:
+  GH_HOST                   Host to clean, e.g. SUBDOMAIN.ghe.com or an Enterprise Server
+                            host; github.com when unset, even if gh is logged in elsewhere
   GH_NOTIF_CLEAN_IGNORE     Accounts to ignore on every run, like --ignore, separated
                             by commas or whitespace
 
