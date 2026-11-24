@@ -89,7 +89,12 @@ Closes #12
 
 ## Releasing
 
-A maintainer releases by pushing a tag from `main`. The release workflow builds the binaries, creates the release with generated notes, attests each binary, then downloads each one on a runner of its own OS and architecture to verify its attestation and run `script/test-binary.sh` on it. For a stable tag it also installs the extension with `gh` and checks that `gh extension list` shows the tag, which only a binary install does.
+A maintainer releases by pushing a tag from `main`. The release workflow runs four jobs:
+
+1. **release** stops unless the tag's commit is on `main`. It builds the binaries, creates a draft release with generated notes and the binaries, and attests each binary. Installs never see a draft.
+2. **verify** takes each binary to a runner of its own OS and architecture, checks that its attestation comes from this workflow for this tag, and runs `script/test-binary.sh` on it.
+3. **publish** checks that the draft holds exactly the binaries verify checked, then makes the release public.
+4. **install**, for a stable tag only, installs the extension with `gh` on the same six runners and checks that `gh extension list` shows the tag, which only a binary install does.
 
 ```sh
 git tag v0.2.0-rc.1 && git push origin v0.2.0-rc.1   # a tag with a "-" makes a prerelease, which gh extension install skips
@@ -97,6 +102,12 @@ git tag v0.2.0 && git push origin v0.2.0
 ```
 
 Never create a release by hand: the workflow then uploads into it afterwards, and until it does, the latest release has no binaries, so new installs get the script and upgrades of binary installs fail.
+
+When a job fails:
+
+- **The tag isn't on `main`**: nothing was built. Delete the tag with `git push origin --delete <tag>` and tag a commit on `main`.
+- **release, verify or publish failed**: the release is still a draft. If the cause was transient, such as a network error, re-run the failed jobs: a re-run release job uploads into the existing draft and attests again. Otherwise fix the cause on `main`, delete the draft and its tag with `gh release delete <tag> --cleanup-tag`, and tag again.
+- **install failed**: the release is already public and the latest. Mark it a prerelease with `gh release edit <tag> --prerelease`, so `gh extension install` and `gh extension upgrade` stop choosing it, fix the cause on `main`, and release a new tag.
 
 ## Working with an AI assistant
 

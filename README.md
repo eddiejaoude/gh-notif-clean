@@ -199,7 +199,7 @@ script/test-binary.sh dist/gh-notif-clean-darwin-arm64  # the checks CI runs on 
 | `src/cli.ts` | Flags and output |
 | `script/build.sh` | Compiles `src/cli.ts` into the six release binaries in `dist/`, on Bun runtimes checked against `.bun-sha256`, with `.env` and `bunfig.toml` loading switched off |
 | `script/test-binary.sh` | The checks CI and the release workflow run on each binary |
-| `.github/workflows/release.yml` | On a `v*` tag: builds, publishes and attests the binaries, then checks each on its own OS and architecture |
+| `.github/workflows/release.yml` | On a `v*` tag from `main`: builds and attests the binaries into a draft release, checks each on its own OS and architecture, then publishes the release |
 
 ## Contributing
 
