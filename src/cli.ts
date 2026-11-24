@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { clean, type ThreadResult } from "./clean.ts";
 import { createApi, ghAuth } from "./github.ts";
-import { DEFAULT_IGNORED, NOTIFICATION_REASONS, parseIgnoreList, parseReasons } from "./rules.ts";
+import { DEFAULT_IGNORED, ignoredLogins, NOTIFICATION_REASONS, parseReasons } from "./rules.ts";
 
 const HELP = `Mark GitHub notifications as done when only ignored bots (and you) took part.
 
@@ -67,12 +67,12 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const ignoredLogins = [
-    ...(values["no-default-bots"] ? [] : DEFAULT_IGNORED),
-    ...parseIgnoreList(process.env.GH_NOTIF_CLEAN_IGNORE),
-    ...values.ignore,
-  ];
-  if (ignoredLogins.length === 0) {
+  const ignored = ignoredLogins({
+    noDefaultBots: values["no-default-bots"],
+    env: process.env.GH_NOTIF_CLEAN_IGNORE,
+    ignore: values.ignore,
+  });
+  if (ignored.size === 0) {
     process.stderr.write("--no-default-bots needs at least one --ignore LOGIN or GH_NOTIF_CLEAN_IGNORE entry\n");
     return 2;
   }
@@ -89,7 +89,7 @@ async function main(argv: string[]): Promise<number> {
   const { login: me } = await api.get<{ login: string }>("user");
   const results = await clean(api, {
     me,
-    ignored: new Set(ignoredLogins.map((l) => l.toLowerCase())),
+    ignored,
     repos: values.repo,
     unreadOnly: values["unread-only"],
     dryRun: values["dry-run"],

@@ -26,8 +26,3 @@ function runWithEnvIgnore(args: string[], ignore: string) {
 test("--no-default-bots without --ignore exits 2 when GH_NOTIF_CLEAN_IGNORE is blank", () => {
   assert.equal(runWithEnvIgnore(["--no-default-bots"], " , ").status, 2);
 });
-
-test("a GH_NOTIF_CLEAN_IGNORE entry satisfies --no-default-bots", () => {
-  // Validation passes, so the run fails later on the unknown host with 1, not 2.
-  assert.equal(runWithEnvIgnore(["--no-default-bots"], "cla-assistant[bot]").status, 1);
-});

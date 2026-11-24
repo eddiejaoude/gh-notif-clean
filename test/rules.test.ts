@@ -6,6 +6,7 @@ import {
   decide,
   needsWorkflowRuns,
   NOTIFICATION_REASONS,
+  ignoredLogins,
   parseIgnoreList,
   parseReasons,
   participants,
@@ -745,5 +746,26 @@ describe("parseIgnoreList (GH_NOTIF_CLEAN_IGNORE)", () => {
   test("is empty when unset or blank", () => {
     assert.deepEqual(parseIgnoreList(undefined), []);
     assert.deepEqual(parseIgnoreList(" , "), []);
+  });
+});
+
+describe("ignoredLogins", () => {
+  const defaults = DEFAULT_IGNORED.map((l) => l.toLowerCase());
+
+  test("unions the defaults, GH_NOTIF_CLEAN_IGNORE and --ignore, lowercased", () => {
+    assert.deepEqual(
+      [...ignoredLogins({ noDefaultBots: false, env: "CLA-Assistant[bot]", ignore: ["Copilot"] })],
+      [...defaults, "cla-assistant[bot]", "copilot"],
+    );
+  });
+
+  test("--no-default-bots keeps GH_NOTIF_CLEAN_IGNORE entries", () => {
+    assert.deepEqual([...ignoredLogins({ noDefaultBots: true, env: "cla-assistant[bot]", ignore: [] })], [
+      "cla-assistant[bot]",
+    ]);
+  });
+
+  test("is empty with --no-default-bots and nothing else", () => {
+    assert.equal(ignoredLogins({ noDefaultBots: true, env: " , ", ignore: [] }).size, 0);
   });
 });
