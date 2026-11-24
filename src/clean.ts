@@ -198,5 +198,16 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
   const list = await api.getAll<Notification>(notificationsPath(options));
   const threads = list.filter((n) => inRepos(n.repository.full_name, options.repos));
 
-  return mapPool(threads, options.concurrency ?? 8, (n) => cleanThread(api, n, options));
+  return mapPool(threads, options.concurrency ?? 8, async (n) => {
+    // When one of the requests a thread makes in parallel fails, the thread is decided without
+    // waiting for the others, which would run on, retries included, and keep the process alive
+    // after the run. Abort them once it's decided: every request it still waited for has finished
+    // by then, so the abort can't change its result.
+    const controller = new AbortController();
+    try {
+      return await cleanThread(api.withSignal(controller.signal), n, options);
+    } finally {
+      controller.abort();
+    }
+  });
 }

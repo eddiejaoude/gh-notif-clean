@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { createApi, findGh, ghAuth, HttpError } from "../src/github.ts";
 
 const json = (body: unknown, init: ResponseInit = {}) =>
@@ -138,6 +139,80 @@ test("markDone refuses a thread id that isn't a number without calling fetch", a
   assert.deepEqual(calls, []);
   await api.markDone("123");
   assert.deepEqual(calls, ["https://api.github.com/notifications/threads/123"]);
+});
+
+test("a request in flight ends when the client's signal aborts, and isn't retried", async () => {
+  let calls = 0;
+  let cancelled = 0;
+  const controller = new AbortController();
+  const api = createApi({
+    token: "t",
+    baseUrl: "https://api.github.com",
+    retryDelayMs: 0,
+    // Like fetch over a connection that never answers: the request ends only when its signal aborts.
+    fetch: (_url, init) =>
+      new Promise((_resolve, reject) => {
+        calls++;
+        const signal = init?.signal;
+        if (!signal) return reject(new Error("fetch got no signal"));
+        if (signal.aborted) return reject(signal.reason);
+        signal.addEventListener("abort", () => {
+          cancelled++;
+          reject(signal.reason);
+        });
+      }),
+  }).withSignal(controller.signal);
+
+  const request = api.get("user");
+  await sleep(0); // until the request is waiting on fetch
+  controller.abort();
+  await assert.rejects(request, { name: "AbortError" });
+  assert.deepEqual({ calls, cancelled }, { calls: 1, cancelled: 1 });
+});
+
+test("a wait to retry ends at once when the client's signal aborts", async () => {
+  let calls = 0;
+  const controller = new AbortController();
+  const api = createApi({
+    token: "t",
+    baseUrl: "https://api.github.com",
+    attempts: 2,
+    retryDelayMs: 5_000,
+    fetch: async () => {
+      calls++;
+      return json({ message: "bad gateway" }, { status: 502 });
+    },
+  }).withSignal(controller.signal);
+
+  const started = performance.now();
+  const request = api.get("user");
+  // By now the 502 is in, and the request is waiting 5 s to retry it.
+  await sleep(50);
+  controller.abort();
+  await assert.rejects(request, { name: "AbortError" });
+  const elapsed = performance.now() - started;
+  assert.equal(calls, 1);
+  assert.ok(elapsed < 5_000, `the request ended after ${Math.round(elapsed)} ms, so its wait to retry wasn't cut short`);
+});
+
+test("withSignal on a client that has a signal ties its requests to both", async () => {
+  for (const which of [0, 1] as const) {
+    const controllers = [new AbortController(), new AbortController()] as const;
+    const api = createApi({
+      token: "t",
+      baseUrl: "https://api.github.com",
+      // Like fetch, which doesn't send a request whose signal has aborted.
+      fetch: async (_url, init) => {
+        init?.signal?.throwIfAborted();
+        return json({ login: "octocat" });
+      },
+    })
+      .withSignal(controllers[0].signal)
+      .withSignal(controllers[1].signal);
+
+    controllers[which].abort();
+    await assert.rejects(api.get("user"), { name: "AbortError" }, `aborting signal ${which} didn't stop the request`);
+  }
 });
 
 // findGh's view of the file system: the given files are executable. Records every path it checks.

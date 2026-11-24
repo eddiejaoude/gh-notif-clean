@@ -11,6 +11,11 @@ export interface Api {
    */
   getAll<T>(path: string, key?: string): Promise<T[]>;
   markDone(threadId: string): Promise<void>;
+  /**
+   * The same client, with its requests also tied to `signal`. Once `signal` aborts, a request in
+   * flight or waiting to retry stops at once with an `AbortError`, without another attempt.
+   */
+  withSignal(signal: AbortSignal): Api;
 }
 
 export class HttpError extends Error {
@@ -138,7 +143,7 @@ export function createApi({
   // Authorization when one leaves the origin, as the Fetch standard requires.
   const origin = new URL(baseUrl).origin;
 
-  async function request(method: string, url: string): Promise<Response> {
+  async function request(method: string, url: string, signal: AbortSignal | undefined): Promise<Response> {
     const target = URL.parse(url);
     if (target?.origin !== origin) {
       throw new Error(`refusing to send the GitHub token to ${target?.href ?? JSON.stringify(url)}: not on ${origin}`);
@@ -146,7 +151,7 @@ export function createApi({
     let lastError: unknown;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
-        const res = await fetchFn(url, { method, headers });
+        const res = await fetchFn(url, { method, headers, signal });
         if (res.ok) return res;
         const body = await res.text();
         lastError = new HttpError(res.status, `${method} ${url}: ${res.status} ${body.slice(0, 200)}`);
@@ -154,14 +159,15 @@ export function createApi({
       } catch (error) {
         lastError = error;
       }
-      if (attempt < attempts) await sleep(retryDelayMs * attempt);
+      // The signal ends the wait too: a pending timer would keep the process alive after an abort.
+      if (attempt < attempts) await sleep(retryDelayMs * attempt, undefined, { signal });
     }
     throw lastError;
   }
 
-  return {
+  const client = (signal?: AbortSignal): Api => ({
     async get<T>(path: string) {
-      return (await (await request("GET", resolve(path))).json()) as T;
+      return (await (await request("GET", resolve(path), signal)).json()) as T;
     },
     async getAll<T>(path: string, key?: string) {
       const first = new URL(resolve(path));
@@ -169,7 +175,7 @@ export function createApi({
       const items: T[] = [];
       let url: string | undefined = first.toString();
       while (url) {
-        const res = await request("GET", url);
+        const res = await request("GET", url, signal);
         const body = await res.json();
         items.push(...((key ? body[key] : body) as T[]));
         url = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get("link") ?? "")?.[1];
@@ -182,7 +188,9 @@ export function createApi({
       if (!/^\d+$/.test(threadId)) {
         throw new Error(`refusing to mark thread ${JSON.stringify(threadId)} done: its id isn't a number`);
       }
-      await request("DELETE", resolve(`notifications/threads/${threadId}`));
+      await request("DELETE", resolve(`notifications/threads/${threadId}`), signal);
     },
-  };
+    withSignal: (also) => client(signal ? AbortSignal.any([signal, also]) : also),
+  });
+  return client();
 }
