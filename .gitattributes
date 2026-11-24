@@ -1,2 +1,5 @@
-# Git Bash runs the scripts on Windows too, and fails on CRLF line endings.
+# LF on Windows checkouts too: sh, which runs the scripts there, fails on CRLF, and
+# script/build.sh compares .bun-version's contents with `bun --version`.
 *.sh text eol=lf
+/gh-notif-clean text eol=lf
+/.bun-version text eol=lf
