@@ -71,5 +71,6 @@ test("an error larger than a 64 KiB pipe arrives complete and exits 1", posixPip
   const host = `${"x".repeat(100_000)}.invalid`;
   const { status, stderr } = runIntoSlowPipe([], { GH_HOST: host, PATH: `${dir}${delimiter}${process.env.PATH}` });
   assert.equal(status, 1);
-  assert.equal(stderr, `gh notif-clean: gh is not logged in to ${host}; run: gh auth login --hostname ${host}\n`);
+  const expected = `gh notif-clean: gh is not logged in to ${host}; run: gh auth login --hostname ${host}\n`;
+  assert.ok(stderr === expected, `got ${stderr.length} of ${expected.length} bytes`);
 });
