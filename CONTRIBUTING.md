@@ -105,10 +105,11 @@ Never create a release by hand: the workflow then uploads into it afterwards, an
 
 The check that the tag is on `main` catches a slip, not a person: a pushed tag runs the workflow files of the commit it points to, so anyone who can push a `v*` tag can run a release with that commit's `release.yml`. A tag ruleset that lets only the maintainer create `v*` tags is what limits who can release. A deployment environment with required reviewers, set on the release and publish jobs, would also make each release wait for a second person's approval. Both are repository settings, outside this repository's files.
 
-When a job fails:
+When a job fails, `gh release view <tag>` shows whether its draft exists. Before tagging again, delete your local tag too, with `git tag -d <tag>`, or `git tag` refuses.
 
 - **The tag isn't on `main`**: nothing was built. Delete the tag with `git push origin --delete <tag>` and tag a commit on `main`.
-- **release, verify or publish failed**: the release is still a draft. If the cause was transient, such as a network error, re-run the failed jobs: a re-run release job uploads into the existing draft and attests again. Otherwise fix the cause on `main`, delete the draft and its tag with `gh release delete <tag> --cleanup-tag`, and tag again.
+- **release failed before the draft existed**, such as on a failed build: there's no release to delete, so `gh release delete` would stop with an error. Fix the cause on `main`, delete the tag with `git push origin --delete <tag>`, and tag again.
+- **release, verify or publish failed after the draft existed**: the release is still a draft. If the cause was transient, such as a network error, re-run the failed jobs: a re-run release job uploads into the existing draft and attests again. Otherwise fix the cause on `main`, delete the draft and the tag on GitHub with `gh release delete <tag> --cleanup-tag`, and tag again.
 - **install failed**: the release is already public and the latest. Mark it a prerelease with `gh release edit <tag> --prerelease`, so `gh extension install` and `gh extension upgrade` stop choosing it, fix the cause on `main`, and release a new tag.
 
 The binaries keep the Bun runtime they were built with, and Dependabot doesn't watch `.bun-version`. When Bun publishes a security fix that affects the extension, update `.bun-version` and `.bun-sha256` in a pull request, then release, so users get the fix with `gh extension upgrade notif-clean`.
