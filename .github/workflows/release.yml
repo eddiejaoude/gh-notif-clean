@@ -97,6 +97,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # publish the draft
+    # bash -eo pipefail, as in verify and install: a failure inside the comparison's pipes
+    # has to stop the job before it publishes.
+    defaults:
+      run:
+        shell: bash
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ github.ref_name }}
