@@ -28,8 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # The release runs the same script, through cli/gh-extension-precompile. It downloads
-      # and checks the Bun it builds with, so no setup-bun.
+      # The release runs the same script. It downloads and checks the Bun it builds with, so
+      # no setup-bun.
       - run: script/build.sh
       - uses: actions/upload-artifact@v7
         with:

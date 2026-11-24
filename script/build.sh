@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Compiles src/cli.ts into one standalone executable per platform in dist/, with the
-# Bun version in .bun-version. The release workflow runs this through
-# cli/gh-extension-precompile, which passes the tag as $1 (unused here) and uploads
-# everything in dist/. CI runs it on every pull request.
+# Bun version in .bun-version. The release workflow runs it, then uploads everything in
+# dist/ to a draft release and attests each file. CI runs it on every pull request.
 #
 # It needs no Bun installed. It downloads that version's release zips, checks each against
 # .bun-sha256, builds with the bun from the zip for the machine it runs on, and builds each

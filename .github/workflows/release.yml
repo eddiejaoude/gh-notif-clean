@@ -26,21 +26,42 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # main's history, for the next step
+          # Don't leave the token on disk, where the build could read it. No later step
+          # fetches or pushes with git: gh and the actions get the token from env or inputs.
+          persist-credentials: false
       - name: Check that the tag's commit is on main
         run: |
           if ! git merge-base --is-ancestor HEAD origin/main; then
             echo "::error::$GITHUB_REF_NAME doesn't point to a commit on main. Delete the tag and tag a commit on main."
             exit 1
           fi
-      # Runs script/build.sh, which downloads and checks the Bun it builds with, creates a
-      # draft release with generated notes and every file in dist/, then attests each file.
-      # A tag with a "-", such as v0.2.0-rc.1, makes a prerelease, which gh extension install
-      # skips.
-      - uses: cli/gh-extension-precompile@76961aa3bd1123d0a6fd42d0a41aca0696937c39 # v2.2.0
+      # The next three steps replace cli/gh-extension-precompile, which downloads and runs
+      # Go before any build, in this job that can publish and attest, though this build
+      # doesn't use Go.
+      #
+      # Downloads and checks the Bun it builds with, and writes the six binaries to dist/.
+      - run: script/build.sh
+      # A draft with generated notes and every file in dist/ as an asset of the same name. A
+      # tag with a "-", such as v0.2.0-rc.1, makes a prerelease, which gh extension install
+      # skips. A re-run uploads into the draft that the first run created. --verify-tag stops
+      # the job if the tag is gone from GitHub: publishing the draft would create it again, on
+      # the default branch, which need not be the commit these binaries were built from.
+      - name: Create the draft release
+        run: |
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null; then
+            gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber -- dist/*
+          else
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --verify-tag --draft \
+              --prerelease="$PRERELEASE" --title "gh-notif-clean ${TAG#v}" \
+              --generate-notes -- dist/*
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ contains(github.ref_name, '-') }}
+      - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
-          build_script_override: script/build.sh
-          draft_release: true
-          generate_attestations: true
+          subject-path: dist/*
       # The same files as the draft's assets, for verify and publish, whose tokens can't
       # read a draft.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
