@@ -12,6 +12,7 @@ Ignored by default: `vercel[bot]`, `dependabot[bot]`, `dependabot-preview[bot]`,
 
 - [GitHub CLI](https://cli.github.com/) 2.0 or later, logged in (`gh auth login`)
 - Nothing else on macOS 13 or later, Windows 10 version 1809 or later, or Linux with glibc, on x64 or arm64: every release after v0.1.0 has a standalone binary for each, so Windows needs neither Git Bash nor WSL. Other systems need Node.js 22.18 or later, to [run it from source](#run-from-source).
+- An account on github.com, on a GitHub Enterprise Cloud tenant on GHE.com (`SUBDOMAIN.ghe.com`), or on GitHub Enterprise Server. The extension works on the host in `GH_HOST`, or github.com when that isn't set, and calls its REST API where `gh` does: `https://api.github.com`, `https://api.SUBDOMAIN.ghe.com`, or `https://HOST/api/v3` for Enterprise Server. `github.localhost` isn't supported.
 
 ## Install
 

@@ -78,6 +78,21 @@ function isExecutableFile(file: string): boolean {
 }
 
 /**
+ * REST API base URL for a host gh logs in to, as gh 2.102.0 maps it in
+ * `internal/ghinstance/host.go` `RESTPrefix`: `https://api.github.com` for github.com,
+ * `https://api.HOST` for a GitHub Enterprise Cloud tenant on GHE.com (`SUBDOMAIN.ghe.com`),
+ * and `https://HOST/api/v3` for GitHub Enterprise Server and any other host. Host names
+ * match in any case. gh's `github.localhost`, a plain-`http:` development host, isn't
+ * supported, so it gets the Enterprise Server form.
+ */
+export function apiBaseUrl(host: string): string {
+  const name = host.toLowerCase();
+  if (name === "github.com") return "https://api.github.com";
+  if (name.endsWith(".ghe.com")) return `https://api.${name}`;
+  return `https://${name}/api/v3`;
+}
+
+/**
  * Token and API base URL for the host `gh` is logged in to (`GH_HOST`, default github.com).
  * Tells apart a gh it can't find, one it can't start, and one that ran and failed.
  */
@@ -105,8 +120,7 @@ export function ghAuth(
     }
     throw new Error(`can't run ${gh}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const baseUrl = host === "github.com" ? "https://api.github.com" : `https://${host}/api/v3`;
-  return { token, baseUrl };
+  return { token, baseUrl: apiBaseUrl(host) };
 }
 
 export interface ApiOptions {

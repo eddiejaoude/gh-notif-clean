@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createApi, findGh, ghAuth, HttpError } from "../src/github.ts";
+import { apiBaseUrl, createApi, findGh, ghAuth, HttpError } from "../src/github.ts";
 
 const json = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), { ...init, headers: { "content-type": "application/json", ...init.headers } });
@@ -119,6 +119,55 @@ test("GHES: requests on the host's origin carry the token, others throw", async 
     ["https://ghe.example/api/v3/repos/x/y/issues/2", "GET", "Bearer t"],
     ["https://ghe.example/api/v3/notifications/threads/3", "DELETE", "Bearer t"],
   ]);
+});
+
+test("GHE.com: requests on the tenant's API origin carry the token, its web host and other tenants throw", async () => {
+  const calls: string[] = [];
+  const api = createApi({
+    token: "t",
+    baseUrl: apiBaseUrl("octocorp.ghe.com"),
+    fetch: async (url) => {
+      calls.push(String(url));
+      return json([]);
+    },
+  });
+
+  await api.get("repos/x/y/pulls/1");
+  await api.get("https://api.octocorp.ghe.com/repos/x/y/issues/2");
+  await api.markDone("3");
+  for (const url of [
+    "https://octocorp.ghe.com/api/v3/repos/x/y",
+    "https://api.other.ghe.com/repos/x/y",
+    "https://api.github.com/repos/x/y",
+  ]) {
+    await assert.rejects(api.get(url), /refusing to send the GitHub token/);
+  }
+  assert.deepEqual(calls, [
+    "https://api.octocorp.ghe.com/repos/x/y/pulls/1",
+    "https://api.octocorp.ghe.com/repos/x/y/issues/2",
+    "https://api.octocorp.ghe.com/notifications/threads/3",
+  ]);
+});
+
+test("apiBaseUrl maps each kind of host to its REST API the way gh does", () => {
+  for (const [host, base] of [
+    // github.com has an API host of its own.
+    ["github.com", "https://api.github.com"],
+    ["GitHub.com", "https://api.github.com"],
+    // GitHub Enterprise Cloud with data residency: a tenant's API is on api.SUBDOMAIN.ghe.com.
+    ["octocorp.ghe.com", "https://api.octocorp.ghe.com"],
+    ["OctoCorp.GHE.com", "https://api.octocorp.ghe.com"],
+    // GitHub Enterprise Server, and every other host gh treats as one.
+    ["ghe.example", "https://ghe.example/api/v3"],
+    ["ghe.com", "https://ghe.com/api/v3"],
+    ["notghe.com", "https://notghe.com/api/v3"],
+    ["octocorp.ghe.com.example", "https://octocorp.ghe.com.example/api/v3"],
+    ["garage.github.com", "https://garage.github.com/api/v3"],
+    // gh's plain-http: development host isn't supported; it gets the Enterprise Server form.
+    ["github.localhost", "https://github.localhost/api/v3"],
+  ] as const) {
+    assert.equal(apiBaseUrl(host), base, host);
+  }
 });
 
 test("markDone refuses a thread id that isn't a number without calling fetch", async () => {
@@ -301,6 +350,11 @@ test("ghAuth runs the first gh file in PATH it can execute", { skip: process.pla
     assert.deepEqual(ghAuth({ PATH }), {
       token: ": auth token --hostname github.com",
       baseUrl: "https://api.github.com",
+    });
+    // A GHE.com tenant's API is on a host of its own too.
+    assert.deepEqual(ghAuth({ GH_HOST: "octocorp.ghe.com", PATH }), {
+      token: "octocorp.ghe.com: auth token --hostname octocorp.ghe.com",
+      baseUrl: "https://api.octocorp.ghe.com",
     });
   } finally {
     rmSync(dir, { recursive: true });
