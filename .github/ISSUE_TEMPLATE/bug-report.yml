@@ -48,11 +48,11 @@ body:
     id: versions
     attributes:
       label: Versions
-      description: Paste the output of these commands. `gh extension list` shows the release tag of a binary install; anything else runs from source with Node.
+      description: Paste what these show. In `gh extension list`, a binary install shows its release tag; anything else runs from source with Node.
       value: |
         gh --version:
-        gh extension list | grep notif-clean:
-        node --version (only if the line above shows no release tag):
+        The notif-clean line of gh extension list:
+        node --version (only if that line shows no release tag):
     validations:
       required: true
   - type: dropdown
