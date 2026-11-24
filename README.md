@@ -58,7 +58,7 @@ To always ignore extra bots, create a `gh` alias:
 gh alias set notif-clean-all "notif-clean --ignore 'cla-assistant[bot]' --ignore 'github-actions[bot]'"
 ```
 
-The REST API keeps returning done threads from `notifications?all=true`, so each run checks them again. Marking an already-done thread done again does nothing. With `--since`, GitHub lists only threads updated after the cutoff, so a run on a large inbox makes fewer requests and finishes sooner. A thread older than the cutoff isn't checked at all, even one an earlier run kept that would now be marked done, so run without `--since` now and then to catch those.
+The REST API keeps returning done threads from `notifications?all=true`, so each run checks them again. Marking an already-done thread done again does nothing. With `--since`, GitHub lists only threads updated after the cutoff, so a run on a large inbox makes fewer requests and finishes sooner. A thread older than the cutoff isn't checked at all, even one an earlier run kept that would now be marked done, such as a PR that `--keep-failed` kept while its checks ran: a check finishing doesn't notify you, so its checks passing doesn't bring the thread back inside the cutoff. Run without `--since` now and then to catch those.
 
 ## How it decides
 
@@ -112,7 +112,7 @@ With `--keep-reason`, a thread whose [notification reason](https://docs.github.c
 | Your PR whose Vercel deploy failed, run with `--keep-failed` | you, `vercel[bot]` | no | yes | **Kept**: checks failed |
 | Your PR whose CI failed, then passed in a new run of the same workflow on the same commit, run with `--keep-failed` | you, `vercel[bot]` | no | yes | **Done**: the new run replaced the failure |
 | Dependabot bump whose CI job failed in its `push` run and passed later in its `pull_request` run, run with `--keep-failed` | `dependabot[bot]`, you | no | yes | **Kept**: checks failed |
-| Dependabot bump whose CI is still running, run with `--keep-failed` | `dependabot[bot]`, you | no | yes | **Kept**: checks pending, so the next run checks it again |
+| Dependabot bump whose CI is still running, run with `--keep-failed` | `dependabot[bot]`, you | no | yes | **Kept**: checks pending, so the next run checks it again, unless that run's `--since` cutoff is later than the thread's last update |
 | Dependabot bump whose Actions deploy job timed out, run with `--keep-failed` | `dependabot[bot]`, you | no | yes | **Kept**: checks cancelled |
 | Your PR whose CI job was cancelled mid-run, then passed in a new run of the same workflow on the same commit, run with `--keep-failed` | you, `vercel[bot]` | no | yes | **Done**: the new run replaced the cancelled one |
 | Dependabot bump whose Actions deploy job timed out in its `push` run while the same job passed in its `pull_request` run, run with `--keep-failed` | `dependabot[bot]`, you | no | yes | **Kept**: checks cancelled |
