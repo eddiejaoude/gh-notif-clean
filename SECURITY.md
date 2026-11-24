@@ -26,6 +26,8 @@ In scope: the code in this repository, including:
 - Requests the extension makes: URLs built from notification data (`subject.url`), pagination links, and redirects.
 - Output: anything that could inject terminal escape sequences or corrupt `--json` output from data in thread titles or repository names.
 - Content someone else controls (a thread title, a comment, a bot login) that makes the extension mark threads done that it shouldn't, or act on threads you didn't select with `--repo`.
+- Files in the directory you run it in, such as a `.env` or `bunfig.toml`, that change what the extension does.
+- How the release binaries are built and published: `script/build.sh`, the Bun runtime pinned in `.bun-version` and `.bun-sha256`, and `.github/workflows/release.yml`.
 
 Out of scope:
 
@@ -36,6 +38,8 @@ Out of scope:
 ## Supported versions
 
 Fixes land on `main` and in the next release. Run `gh extension upgrade notif-clean` to get them. Only the latest release is supported.
+
+Each release binary contains the Bun runtime pinned in `.bun-version`, so a Bun security fix reaches you only through a new release of this extension that updates the pin. We release one when Bun publishes a security fix that affects the extension.
 
 ## What to expect
 

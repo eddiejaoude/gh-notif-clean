@@ -109,6 +109,8 @@ When a job fails:
 - **release, verify or publish failed**: the release is still a draft. If the cause was transient, such as a network error, re-run the failed jobs: a re-run release job uploads into the existing draft and attests again. Otherwise fix the cause on `main`, delete the draft and its tag with `gh release delete <tag> --cleanup-tag`, and tag again.
 - **install failed**: the release is already public and the latest. Mark it a prerelease with `gh release edit <tag> --prerelease`, so `gh extension install` and `gh extension upgrade` stop choosing it, fix the cause on `main`, and release a new tag.
 
+The binaries keep the Bun runtime they were built with, and Dependabot doesn't watch `.bun-version`. When Bun publishes a security fix that affects the extension, update `.bun-version` and `.bun-sha256` in a pull request, then release, so users get the fix with `gh extension upgrade notif-clean`.
+
 ## Working with an AI assistant
 
 You're responsible for every line you submit, whoever wrote it. When an assistant writes an issue, a pull request description, or a comment, end it with one line naming the model and its reasoning setting:
