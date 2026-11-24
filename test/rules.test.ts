@@ -293,7 +293,7 @@ describe("checksReason (README --keep-failed examples)", () => {
   });
 
   test("a failed or cancelled run the check list leaves out doesn't keep the thread when the list's run of its workflow passed the job, whichever ran first", () => {
-    for (const conclusion of ["failure", "cancelled"]) {
+    for (const conclusion of ["failure", "timed_out", "action_required", "cancelled"]) {
       const leftOut = run(gate, "completed", conclusion, 1800, 0, 6);
       // Started an hour before it, while it ran, and an hour after it started.
       for (const start of [-3600, 30, 3600]) {
@@ -322,6 +322,13 @@ describe("checksReason (README --keep-failed examples)", () => {
 
   test("a failed run the check list leaves out is still excused by a newer run for its event, like a listed one", () => {
     assert.equal(checksReason([], [dispatched, run(gate, "completed", "success", 60, 3600, 7)], workflowRuns), null);
+  });
+
+  test("an unfinished run the check list leaves out keeps the thread, even when the list's run of its workflow passed the job", () => {
+    const pass = run(gate, "completed", "success", 60, 0, 1);
+    for (const status of ["in_progress", "queued"]) {
+      assert.equal(checksReason([], [run(gate, status, null, 60, 30, 6), pass], workflowRuns), `checks pending: ${gate}`, status);
+    }
   });
 
   test("a failed run in the check list keeps the thread when the job passed only in a run the list leaves out", () => {
