@@ -632,8 +632,34 @@ describe("needsWorkflowRuns", () => {
       }
       assert.equal(needsWorkflowRuns([{ ...at("cancelled", 0, 1, name), completed_at: at("cancelled", 0).started_at }]), false, `${name} cancelled before it started`);
     }
-    // Names that only look like those jobs, and a job of a `dynamic` workflow that GitHub lists.
-    for (const name of ["Copilot", "dependabot", "copilot-setup-steps", "update-graph", "Analyze (actions)"]) {
+    // Names that only look like those jobs, such as one with a word before or after it or in another case, and a job
+    // of a `dynamic` workflow that GitHub lists.
+    for (const name of [
+      "Copilot",
+      "github-copilot",
+      "copilot-setup-steps",
+      "copilot-pull-request-reviewer-2",
+      "my-copilot-pull-request-reviewer",
+      "github-advanced-security-scan",
+      "pre-github-advanced-security",
+      "dependabot",
+      "Dependabot auto-merge",
+      "Auto-merge Dependabot",
+      "update-graph",
+      "pre-update-pip-graph",
+      "update-pip-graph-2",
+      "claude-review",
+      "run-claude",
+      "Claude",
+      "codex-review",
+      "run-codex",
+      "Prepare release",
+      "Pre-Prepare",
+      "CodeQL analysis go",
+      "prebuild (linux)",
+      "npm prebuild",
+      "Analyze (actions)",
+    ]) {
       assert.equal(needsWorkflowRuns([at("failure", 0, 1, name)]), false, name);
     }
   });
