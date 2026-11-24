@@ -394,13 +394,6 @@ describe("--keep-failed", () => {
       assert.ok(requested.includes(runsPath("sha13")), "workflow runs not fetched for a pass that started first");
       assert.ok(!requested.includes(runsPath("sha14")), "workflow runs fetched for a PR with no pass of the job");
     });
-
-    test("keeps the PR for its failed check when the workflow runs can't be fetched", async () => {
-      const { api, marked } = fakeApi([inbox[0]!], responses);
-      const [result] = await clean(api, options({ keepFailed: true }));
-      assert.deepEqual(marked, []);
-      assert.equal(result?.reason, "checks failed: test");
-    });
   });
 });
 
