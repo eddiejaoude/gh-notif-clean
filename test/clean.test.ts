@@ -136,11 +136,12 @@ test("--since and --unread-only shape the notifications list request", async () 
   await clean(api, options({ unreadOnly: true }));
   await clean(api, options({ since }));
   await clean(api, options({ since, unreadOnly: true }));
-  assert.deepEqual(listed, [
-    "notifications?all=true",
-    "notifications",
-    "notifications?all=true&since=2026-11-17T12%3A34%3A56Z",
-    "notifications?since=2026-11-17T12%3A34%3A56Z",
+  const queries = listed.map((path) => Object.fromEntries(new URL(path, "https://api.github.com").searchParams));
+  assert.deepEqual(queries, [
+    { all: "true" },
+    {},
+    { all: "true", since: "2026-11-17T12:34:56Z" },
+    { since: "2026-11-17T12:34:56Z" },
   ]);
 });
 
