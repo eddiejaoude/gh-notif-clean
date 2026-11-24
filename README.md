@@ -21,7 +21,7 @@ gh extension install eddiejaoude/gh-notif-clean
 gh extension upgrade notif-clean   # later, to update
 ```
 
-`gh` installs the binary for your system: `darwin-arm64`, `darwin-amd64`, `linux-arm64`, `linux-amd64`, `windows-arm64` or `windows-amd64`. GitHub Actions builds them from the release's tag and attests each one. To check where a binary came from, download it from its release and verify that file, with the tag that `gh extension list` shows for your install in place of `v0.2.0` in both commands:
+`gh` installs the binary for your system: `darwin-arm64`, `darwin-amd64`, `linux-arm64`, `linux-amd64`, `windows-arm64` or `windows-amd64`. GitHub Actions builds them from the release's tag and attests each one. To check where a binary came from, download it from its release and verify that file. In both commands, put the tag that `gh extension list` shows for your install in place of `v0.2.0`, and your system's file in place of `gh-notif-clean-darwin-arm64`; the two Windows files end in `.exe`, such as `gh-notif-clean-windows-amd64.exe`:
 
 ```sh
 gh release download v0.2.0 -R eddiejaoude/gh-notif-clean -p gh-notif-clean-darwin-arm64
