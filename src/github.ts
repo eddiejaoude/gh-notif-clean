@@ -103,7 +103,7 @@ export function createApi({
       return items;
     },
     async markDone(threadId: string) {
-      await request("DELETE", resolve(`notifications/threads/${threadId}`));
+      await request("DELETE", resolve(`notifications/threads/${encodeURIComponent(threadId)}`));
     },
   };
 }

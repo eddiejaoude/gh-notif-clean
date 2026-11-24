@@ -117,3 +117,20 @@ test("GHES: requests on the host's origin carry the token, others throw", async 
     ["https://ghe.example/api/v3/notifications/threads/3", "DELETE", "Bearer t"],
   ]);
 });
+
+test("markDone encodes the thread id so it can't change the request path", async () => {
+  const calls: string[] = [];
+  const api = createApi({
+    token: "t",
+    baseUrl: "https://api.github.com",
+    fetch: async (url) => {
+      calls.push(String(url));
+      return new Response(null, { status: 205 });
+    },
+  });
+
+  await api.markDone("../../repos/o/r/git/refs/heads/main");
+  assert.deepEqual(calls, [
+    "https://api.github.com/notifications/threads/..%2F..%2Frepos%2Fo%2Fr%2Fgit%2Frefs%2Fheads%2Fmain",
+  ]);
+});
