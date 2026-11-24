@@ -60,6 +60,8 @@ export function createApi({
     path.startsWith("https://") ? path : `${baseUrl}/${path.replace(/^\//, "")}`;
   // The token belongs to the API host. Absolute URLs come from GitHub's
   // responses (subject URLs, Link headers), so check each one rather than trust it.
+  // Redirects never reach this check: fetch follows them itself, and drops
+  // Authorization when one leaves the origin, as the Fetch standard requires.
   const origin = new URL(baseUrl).origin;
 
   async function request(method: string, url: string): Promise<Response> {
