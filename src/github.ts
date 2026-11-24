@@ -58,8 +58,14 @@ export function createApi({
   };
   const resolve = (path: string) =>
     path.startsWith("https://") ? path : `${baseUrl}/${path.replace(/^\//, "")}`;
+  // The token belongs to the API host. Absolute URLs come from GitHub's
+  // responses (subject URLs, Link headers), so check each one rather than trust it.
+  const origin = new URL(baseUrl).origin;
 
   async function request(method: string, url: string): Promise<Response> {
+    if (new URL(url).origin !== origin) {
+      throw new Error(`refusing to send the GitHub token to ${url}: not on ${origin}`);
+    }
     let lastError: unknown;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
