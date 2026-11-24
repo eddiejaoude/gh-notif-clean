@@ -78,15 +78,60 @@ function isExecutableFile(file: string): boolean {
 }
 
 /**
- * Token and API base URL for the host `gh` is logged in to (`GH_HOST`, default github.com).
- * Tells apart a gh it can't find, one it can't start, and one that ran and failed.
+ * REST API base URL for the host gh logs in to, in any case. For the three kinds of host people
+ * log in to, it's the URL gh 2.102.0 uses (`RESTPrefix` in cli/cli `internal/ghinstance/host.go`):
+ * `https://api.github.com` for github.com, `https://api.SUBDOMAIN.ghe.com` for a GitHub
+ * Enterprise Cloud tenant on GHE.com, and `https://HOST/api/v3` for GitHub Enterprise Server.
+ *
+ * Other names aren't mapped the way gh maps them. A name with more than one label before
+ * `.ghe.com` is refused (see below), and so are `github.localhost` and its subdomains, which gh
+ * reaches over plain http. A subdomain of github.com gets the Enterprise Server form here, where
+ * gh uses `https://api.HOST`. gh reads the token for such a name from the github.com login, as it
+ * does for a nested GHE.com name from its tenant's, yet it isn't refused: `garage.github.com`,
+ * which gh maps to the Enterprise Server form by a special case, gets that form only by falling
+ * through here, and the token stays on github.com's own domain. A host name may hold only
+ * letters, digits, dots and hyphens, and must parse back as itself in a URL, which rules out
+ * names a URL rewrites as an IP address, such as 2130706433, or can't read; a plain IPv4
+ * address such as 10.0.0.5 comes back unchanged and is accepted.
+ */
+export function apiBaseUrl(host: string): string {
+  const name = host.toLowerCase();
+  if (!/^[a-z0-9.-]+$/i.test(host) || URL.parse(`https://${name}`)?.hostname !== name) {
+    throw new Error(`GH_HOST must be a host name, such as github.com or SUBDOMAIN.ghe.com; got ${JSON.stringify(host)}`);
+  }
+  if (name === "github.com") return "https://api.github.com";
+  if (name === "github.localhost" || name.endsWith(".github.localhost")) {
+    throw new Error(`GH_HOST ${host} isn't supported: gh reaches github.localhost over plain http`);
+  }
+  if (name.endsWith(".ghe.com")) {
+    // gh reads the token for a.b.ghe.com from its login to b.ghe.com, so a name with more than
+    // one label before .ghe.com would send tenant b's token to another host.
+    const tenant = name.slice(0, -".ghe.com".length);
+    if (!/^[a-z0-9-]+$/.test(tenant)) {
+      const last = tenant.slice(tenant.lastIndexOf(".") + 1);
+      throw new Error(
+        `GH_HOST ${host} isn't a GHE.com tenant host, which is SUBDOMAIN.ghe.com` +
+          (/^[a-z0-9-]+$/.test(last) ? `; use ${last}.ghe.com` : ""),
+      );
+    }
+    return `https://api.${name}`;
+  }
+  return `https://${name}/api/v3`;
+}
+
+/**
+ * Token and API base URL for the host `gh` is logged in to (`GH_HOST`, default github.com,
+ * as when it's empty). Tells apart a gh it can't find, one it can't start, and one that ran
+ * and failed.
  */
 export function ghAuth(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
   isExecutable: (file: string) => boolean = isExecutableFile,
 ): { token: string; baseUrl: string } {
-  const host = env.GH_HOST ?? "github.com";
+  const host = env.GH_HOST || "github.com";
+  // Before gh runs, so no token is read for a host that's refused.
+  const baseUrl = apiBaseUrl(host);
   const gh = findGh(env, platform, isExecutable);
   if (gh === undefined) {
     throw new Error("gh not found in GH_PATH or PATH; install GitHub CLI: https://cli.github.com");
@@ -105,7 +150,6 @@ export function ghAuth(
     }
     throw new Error(`can't run ${gh}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const baseUrl = host === "github.com" ? "https://api.github.com" : `https://${host}/api/v3`;
   return { token, baseUrl };
 }
 
