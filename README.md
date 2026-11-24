@@ -11,7 +11,7 @@ Ignored by default: `vercel[bot]`, `dependabot[bot]`, `dependabot-preview[bot]`,
 ## Requirements
 
 - [GitHub CLI](https://cli.github.com/) 2.0 or later, logged in (`gh auth login`)
-- Nothing else on macOS, Windows, or Linux with glibc, on x64 or arm64: every release after v0.1.0 has a standalone binary for each, so Windows needs neither Git Bash nor WSL. Other systems need Node.js 22.18 or later, to [run it from source](#run-from-source).
+- Nothing else on macOS 13 or later, Windows 10 version 1809 or later, or Linux with glibc, on x64 or arm64: every release after v0.1.0 has a standalone binary for each, so Windows needs neither Git Bash nor WSL. Other systems need Node.js 22.18 or later, to [run it from source](#run-from-source).
 
 ## Install
 
@@ -33,13 +33,13 @@ The binary sends its requests through the proxy in `HTTPS_PROXY`, or in `ALL_PRO
 
 ### Upgrading from v0.1.0
 
-v0.1.0 is a script that `gh` runs with Node. `gh extension upgrade notif-clean` replaces it with the binary, and `gh extension list` then shows the release's tag where it showed a commit. On a system without a working binary, [run it from source](#run-from-source) instead: there the upgrade removes the script, then fails, leaving nothing installed.
+v0.1.0 is a script that `gh` runs with Node. `gh extension upgrade notif-clean` replaces it with the binary, and `gh extension list` then shows the release's tag where it showed a commit. On a system without a working binary, [run it from source](#run-from-source) instead: there the upgrade removes the script, then either fails and leaves nothing installed, or, on a system with musl, installs a binary that can't start.
 
 `gh extension install eddiejaoude/gh-notif-clean --pin v0.1.0` stops working once the latest release has binaries, as v0.1.0 has none. To stay on v0.1.0, run it from source and `git checkout v0.1.0` before `gh extension install .`.
 
 ### Run from source
 
-There's no binary for other systems, such as FreeBSD or 32-bit ones, and the Linux binaries don't start on Alpine Linux or other systems that use musl instead of glibc. There, run the extension from source with Node.js 22.18 or later:
+There's no binary for other systems, such as FreeBSD or 32-bit ones. `gh` does install a Linux binary on Alpine Linux and other systems that use musl instead of glibc, but it can't start there: the shell reports it `not found`, with exit code 127. Bun, which the binaries are built with, also needs macOS 13 or later and Windows 10 version 1809 or later, so older versions get a binary that may not run. On all of these, run the extension from source with Node.js 22.18 or later:
 
 ```sh
 gh extension remove notif-clean   # if it's installed
