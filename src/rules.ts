@@ -192,7 +192,11 @@ function keepsUnlessReplaced(run: CheckRun): boolean {
   return Date.parse(run.completed_at) > Date.parse(run.started_at);
 }
 
-/** Same-named runs that passed and started after `earlier` completed. */
+/**
+ * Same-named runs that passed and started after `earlier` completed. A skipped
+ * or neutral run doesn't count: it tested nothing, so it can't show that a
+ * failure or a possible timeout is gone.
+ */
 function laterPasses(earlier: CheckRun, checkRuns: readonly CheckRun[]): CheckRun[] {
   return checkRuns.filter((run) => run.name === earlier.name && run.conclusion === "success" && startedAfter(run, earlier));
 }
