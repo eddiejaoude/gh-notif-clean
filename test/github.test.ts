@@ -234,18 +234,26 @@ test("findGh on Windows skips relative entries, unquotes entries and reads Path 
 });
 
 test("findGh on Windows takes only paths from a drive or a UNC share", () => {
-  const fs = files("\\tools\\gh.exe", "/usr/bin/gh.exe", "\\\\server\\share\\bin\\gh.exe", "C:\\gh\\gh.exe");
+  const fs = files("\\tools\\gh.exe", "/usr/bin/gh.exe", "\\\\server\\share\\bin\\gh.exe", "C:\\gh\\gh.exe", "c:\\gh\\gh.exe");
 
+  // Three leading separators make no share: \\\tools joins as \tools, rooted without a drive.
   assert.equal(
-    findGh({ GH_PATH: "\\tools\\gh.exe", PATH: "\\tools;/usr/bin;\\\\server\\share\\bin" }, "win32", fs.isExecutable),
+    findGh(
+      { GH_PATH: "\\tools\\gh.exe", PATH: "\\tools;/usr/bin;\\\\\\tools;\\\\server\\share\\bin" },
+      "win32",
+      fs.isExecutable,
+    ),
     "\\\\server\\share\\bin\\gh.exe",
   );
   assert.equal(findGh({ GH_PATH: "/usr/bin/gh.exe", PATH: "C:/gh" }, "win32", fs.isExecutable), "C:\\gh\\gh.exe");
+  assert.equal(findGh({ PATH: "c:\\gh" }, "win32", fs.isExecutable), "c:\\gh\\gh.exe");
   assert.deepEqual(fs.checked, [
     "\\\\server\\share\\bin\\gh.com",
     "\\\\server\\share\\bin\\gh.exe",
     "C:\\gh\\gh.com",
     "C:\\gh\\gh.exe",
+    "c:\\gh\\gh.com",
+    "c:\\gh\\gh.exe",
   ]);
 });
 
