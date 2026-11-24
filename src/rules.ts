@@ -188,6 +188,10 @@ const LEFT_OUT_DYNAMIC: Record<string, RegExp> = {
   "dynamic/dependabot/dependabot-updates": /^Dependabot$/,
   // Dependabot's dependency graph builds: one job per ecosystem, such as `update-pip-graph`.
   "dynamic/dependabot/update-graph": /^update-.+-graph$/,
+  // Codespaces prebuilds (Dev Environment Prebuilds), with the `(development)` and `(ppe)` variants one repository runs.
+  "dynamic/codespaces/create_codespaces_prebuilds": /^prebuild$/,
+  "dynamic/codespaces/create_codespaces_prebuilds_development": /^prebuild$/,
+  "dynamic/codespaces/create_codespaces_prebuilds_ppe": /^prebuild$/,
 };
 
 /** The job names in `LEFT_OUT_DYNAMIC`. A name alone doesn't show a check run is one of those jobs: any workflow can use it. */

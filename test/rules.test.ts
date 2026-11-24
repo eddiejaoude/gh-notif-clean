@@ -414,8 +414,8 @@ describe("checksReason (README --keep-failed examples)", () => {
   /**
    * A job of each of GitHub's own workflows that the PR's check list leaves out, as sampled: Copilot's code review,
    * GitHub Advanced Security's AI findings, Copilot's cloud agent, Dependabot's updates, two dependency graph builds,
-   * the Claude and Codex cloud agents, and three jobs of the workflow Copilot's code review ran until May 2026. Job `i`
-   * is in suite `20 + i`, which `leftOutRuns` gives the workflow's path.
+   * the Claude and Codex cloud agents, three jobs of the workflow Copilot's code review ran until May 2026, and the
+   * three Codespaces prebuild workflows. Job `i` is in suite `20 + i`, which `leftOutRuns` gives the workflow's path.
    */
   const leftOutJobs = [
     ["copilot-pull-request-reviewer", "dynamic/agents/copilot-pull-request-reviewer"],
@@ -429,6 +429,9 @@ describe("checksReason (README --keep-failed examples)", () => {
     ["Agent", "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer"],
     ["Cleanup artifacts", "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer"],
     ["CodeQL analysis (go)", "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer"],
+    ["prebuild", "dynamic/codespaces/create_codespaces_prebuilds"],
+    ["prebuild", "dynamic/codespaces/create_codespaces_prebuilds_development"],
+    ["prebuild", "dynamic/codespaces/create_codespaces_prebuilds_ppe"],
   ] as const;
   const leftOutRuns = leftOutJobs.map(([, path], i) => dynamic(20 + i, path));
 
@@ -618,6 +621,7 @@ describe("needsWorkflowRuns", () => {
       "Autovalidate",
       "CodeQL analysis",
       "CodeQL analysis (go)",
+      "prebuild",
     ]) {
       assert.equal(needsWorkflowRuns([at("failure", 0, 1, name)]), true, `${name} failed`);
       assert.equal(needsWorkflowRuns([at("timed_out", 0, 1, name)]), true, `${name} timed out`);
