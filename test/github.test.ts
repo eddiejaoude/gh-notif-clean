@@ -157,8 +157,10 @@ test("apiBaseUrl maps each kind of host to its REST API base", () => {
     // GitHub Enterprise Cloud with data residency: a tenant's API is on api.SUBDOMAIN.ghe.com.
     ["octocorp.ghe.com", "https://api.octocorp.ghe.com"],
     ["OctoCorp.GHE.com", "https://api.octocorp.ghe.com"],
+    ["octo-corp1.ghe.com", "https://api.octo-corp1.ghe.com"],
     // GitHub Enterprise Server, and any other host.
     ["ghe.example", "https://ghe.example/api/v3"],
+    ["ghe-01.corp.example", "https://ghe-01.corp.example/api/v3"],
     ["ghe.com", "https://ghe.com/api/v3"],
     ["notghe.com", "https://notghe.com/api/v3"],
     ["octocorp.ghe.com.example", "https://octocorp.ghe.com.example/api/v3"],
