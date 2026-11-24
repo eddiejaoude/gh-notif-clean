@@ -3,6 +3,9 @@ name: Release
 # Push a v* tag from main to release. Never create the release by hand: this workflow then
 # uploads into it afterwards, and until it does, the latest release has no binaries, so new
 # installs get the script and upgrades of binary installs fail.
+#
+# Every action here is pinned to a commit, as the release job can publish and attest
+# binaries under this repository's name. Dependabot updates the pins and their comments.
 on:
   push:
     tags: ["v*"]
@@ -18,15 +21,15 @@ jobs:
       id-token: write # sign the attestations
       attestations: write # store them
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
           no-cache: true # build a release with a fresh download, never an Actions cache
       # Runs script/build.sh, creates the release with generated notes and every file in
       # dist/, then attests each file. A tag with a "-", such as v0.2.0-rc.1, makes a
       # prerelease, which gh extension install skips.
-      - uses: cli/gh-extension-precompile@v2
+      - uses: cli/gh-extension-precompile@76961aa3bd1123d0a6fd42d0a41aca0696937c39 # v2.2.0
         with:
           build_script_override: script/build.sh
           generate_attestations: true
@@ -54,10 +57,10 @@ jobs:
       ASSET: ${{ matrix.asset }}
       TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Only to compile the stub gh.exe that script/test-binary.sh runs a Windows binary with.
       - if: runner.os == 'Windows'
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
       # The published asset itself, so a prerelease tag checks it too.
