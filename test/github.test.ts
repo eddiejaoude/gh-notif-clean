@@ -4,10 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { apiBaseUrl, createApi, findGh, ghAuth, HttpError } from "../src/github.ts";
+import { apiBaseUrl, createApi, findGh, ghAuth, HttpError, type Api } from "../src/github.ts";
 
 const json = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), { ...init, headers: { "content-type": "application/json", ...init.headers } });
+
+/** `api` as createApi returns it, and with a signal, as clean() hands it to each thread. */
+const withAndWithoutSignal = (api: Api) => [api, api.withSignal(new AbortController().signal)];
 
 test("getAll follows Link pages and retries server errors", async () => {
   const calls: string[] = [];
@@ -62,7 +65,7 @@ test("client errors are not retried", async () => {
 
 test("a URL on another origin throws without calling fetch", async () => {
   let calls = 0;
-  const api = createApi({
+  const plain = createApi({
     token: "t",
     baseUrl: "https://api.github.com",
     fetch: async () => {
@@ -71,10 +74,12 @@ test("a URL on another origin throws without calling fetch", async () => {
     },
   });
 
-  await assert.rejects(api.get("https://example.com/repos/x/y/pulls/1"), /refusing to send the GitHub token/);
-  await assert.rejects(api.getAll("https://example.com/notifications"), /refusing to send the GitHub token/);
-  await assert.rejects(api.get("https://api.github.com.example.com/repos/x/y"), /refusing to send the GitHub token/);
-  await assert.rejects(api.get("https://api.github.com:8443/repos/x/y"), /refusing to send the GitHub token/);
+  for (const api of withAndWithoutSignal(plain)) {
+    await assert.rejects(api.get("https://example.com/repos/x/y/pulls/1"), /refusing to send the GitHub token/);
+    await assert.rejects(api.getAll("https://example.com/notifications"), /refusing to send the GitHub token/);
+    await assert.rejects(api.get("https://api.github.com.example.com/repos/x/y"), /refusing to send the GitHub token/);
+    await assert.rejects(api.get("https://api.github.com:8443/repos/x/y"), /refusing to send the GitHub token/);
+  }
   assert.equal(calls, 0);
 });
 
@@ -85,8 +90,8 @@ test("getAll stops at a Link page on another origin", async () => {
     "/notifications?page=2",
   ]) {
     const calls: string[] = [];
-    const pages = [json([1], { headers: { link: `<${next}>; rel="next"` } }), json([2])];
-    const api = createApi({
+    let pages: Response[] = [];
+    const plain = createApi({
       token: "t",
       baseUrl: "https://api.github.com",
       fetch: async (url) => {
@@ -95,8 +100,12 @@ test("getAll stops at a Link page on another origin", async () => {
       },
     });
 
-    await assert.rejects(api.getAll("notifications"), /refusing to send the GitHub token/);
-    assert.deepEqual(calls, ["https://api.github.com/notifications?per_page=100"]);
+    for (const api of withAndWithoutSignal(plain)) {
+      calls.length = 0;
+      pages = [json([1], { headers: { link: `<${next}>; rel="next"` } }), json([2])];
+      await assert.rejects(api.getAll("notifications"), /refusing to send the GitHub token/);
+      assert.deepEqual(calls, ["https://api.github.com/notifications?per_page=100"]);
+    }
   }
 });
 
@@ -248,7 +257,7 @@ test("ghAuth accepts a plain host name and goes on to look for gh", () => {
 
 test("markDone refuses a thread id that isn't a number without calling fetch", async () => {
   const calls: string[] = [];
-  const api = createApi({
+  const plain = createApi({
     token: "t",
     baseUrl: "https://api.github.com",
     fetch: async (url) => {
@@ -257,12 +266,15 @@ test("markDone refuses a thread id that isn't a number without calling fetch", a
     },
   });
 
-  for (const id of ["../../repos/o/r/git/refs/heads/main", "..", "", "123/..", "../123"]) {
-    await assert.rejects(api.markDone(id), /refusing to mark thread/);
+  for (const api of withAndWithoutSignal(plain)) {
+    calls.length = 0;
+    for (const id of ["../../repos/o/r/git/refs/heads/main", "..", "", "123/..", "../123"]) {
+      await assert.rejects(api.markDone(id), /refusing to mark thread/);
+    }
+    assert.deepEqual(calls, []);
+    await api.markDone("123");
+    assert.deepEqual(calls, ["https://api.github.com/notifications/threads/123"]);
   }
-  assert.deepEqual(calls, []);
-  await api.markDone("123");
-  assert.deepEqual(calls, ["https://api.github.com/notifications/threads/123"]);
 });
 
 test("a request in flight ends when the client's signal aborts, and isn't retried", async () => {
