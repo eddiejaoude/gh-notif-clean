@@ -7,6 +7,7 @@ import {
   needsWorkflowRuns,
   NOTIFICATION_REASONS,
   parseReasons,
+  parseSince,
   participants,
   type ThreadActivity,
 } from "../src/rules.ts";
@@ -62,6 +63,30 @@ describe("parseReasons (--keep-reason)", () => {
         !error.message.includes("'mention'") &&
         NOTIFICATION_REASONS.every((r) => error.message.includes(r)),
     );
+  });
+});
+
+describe("parseSince (--since)", () => {
+  const now = new Date("2026-11-24T12:00:00.000Z");
+
+  test("subtracts minutes, hours, days or weeks from now", () => {
+    const cases: [string, string][] = [
+      ["30m", "2026-11-24T11:30:00.000Z"],
+      ["12h", "2026-11-24T00:00:00.000Z"],
+      ["7d", "2026-11-17T12:00:00.000Z"],
+      ["2w", "2026-11-10T12:00:00.000Z"],
+    ];
+    for (const [duration, cutoff] of cases) assert.equal(parseSince(duration, now).toISOString(), cutoff, duration);
+  });
+
+  test("rejects a missing or unknown unit, a sign, a fraction and zero", () => {
+    for (const duration of ["", "7", "d", "7y", "7D", "-7d", "+7d", "1.5h", " 7d", "0d", "00h"]) {
+      assert.throws(() => parseSince(duration, now), /expected a positive whole number/, duration);
+    }
+  });
+
+  test("rejects a duration that reaches back further than a date can", () => {
+    assert.throws(() => parseSince(`${"1".repeat(20)}d`, now), /reaches back further/);
   });
 });
 

@@ -28,6 +28,7 @@ gh notif-clean                               # mark matching threads done
 gh notif-clean --ignore 'cla-assistant[bot]' # also ignore another bot for this run
 gh notif-clean -R eddiejaoude/StackDash      # only one repository
 gh notif-clean -R paypal                     # only repositories owned by paypal
+gh notif-clean --since 7d                    # only threads updated in the last 7 days
 gh notif-clean --keep-failed                 # but keep open PRs whose deploy or CI failed or is still running
 gh notif-clean --closed-only                 # but keep open PRs and issues until they're merged or closed
 gh notif-clean --keep-reason review_requested --keep-reason assign  # but keep threads where you were asked to review or assigned
@@ -42,6 +43,7 @@ gh notif-clean --json -n | jq '.threads[] | select(.outcome == "kept")'
 | `--no-default-bots` | Ignore only the accounts given with `--ignore` |
 | `-R`, `--repo REPO` | Only process `OWNER/NAME`, or every repository of `OWNER` (repeatable) |
 | `--unread-only` | Skip threads you've already read |
+| `--since DURATION` | Only check threads GitHub updated in the last `DURATION`: a whole number followed by `m` (minutes), `h` (hours), `d` (days) or `w` (weeks), such as `7d` or `12h`. Older threads aren't checked |
 | `--keep-failed` | Keep open PRs whose latest commit has failed or unfinished checks, such as a failed Vercel deploy |
 | `--closed-only` | Keep open PRs and issues, so only closed or merged ones are marked done |
 | `--keep-reason REASON` | Keep threads whose [notification reason](https://docs.github.com/en/rest/activity/notifications#about-notification-reasons) is `REASON`, such as `review_requested` or `assign`, until their PR or issue is closed or merged (repeatable, any case). GitHub sets the reason from the latest notification on the thread |
@@ -56,7 +58,7 @@ To always ignore extra bots, create a `gh` alias:
 gh alias set notif-clean-all "notif-clean --ignore 'cla-assistant[bot]' --ignore 'github-actions[bot]'"
 ```
 
-The REST API keeps returning done threads from `notifications?all=true`, so each run checks them again. Marking an already-done thread done again does nothing.
+The REST API keeps returning done threads from `notifications?all=true`, so each run checks them again. Marking an already-done thread done again does nothing. With `--since`, GitHub lists only threads updated after the cutoff, so a run on a large inbox makes fewer requests and finishes sooner. A thread older than the cutoff isn't checked at all, even one an earlier run kept that would now be marked done, so run without `--since` now and then to catch those.
 
 ## How it decides
 
@@ -149,7 +151,7 @@ npm test           # node:test, no network access
 | Path | Contents |
 |---|---|
 | `gh-notif-clean` | Entry point `gh` runs; starts `src/cli.ts` with Node |
-| `src/rules.ts` | Pure rules: who took part (`participants`), done or kept (`decide`), which checks keep a PR (`checksReason`), and which notification reasons `--keep-reason` accepts (`parseReasons`) |
+| `src/rules.ts` | Pure rules: who took part (`participants`), done or kept (`decide`), which checks keep a PR (`checksReason`), which notification reasons `--keep-reason` accepts (`parseReasons`), and the cutoff a `--since` duration sets (`parseSince`) |
 | `src/clean.ts` | Lists notifications, keeps open ones whose reason matches `--keep-reason`, loads each other thread's activity and, with `--keep-failed`, its PR checks, applies the rules, marks threads done |
 | `src/github.ts` | REST client: `gh auth token`, pagination, retries on 429/5xx |
 | `src/cli.ts` | Flags and output |

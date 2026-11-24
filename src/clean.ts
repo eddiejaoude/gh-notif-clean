@@ -25,6 +25,8 @@ export interface CleanOptions {
   /** `owner/name` or `owner`; empty means every repository. */
   repos: readonly string[];
   unreadOnly: boolean;
+  /** List only threads GitHub last updated after this time; `null` lists every thread. */
+  since: Date | null;
   dryRun: boolean;
   /** Keep open PRs whose head commit has failed or unfinished checks. */
   keepFailed: boolean;
@@ -131,8 +133,16 @@ async function mapPool<T, R>(items: readonly T[], limit: number, fn: (item: T) =
   return results;
 }
 
+/** The notifications list request for `options`; `since` is sent without milliseconds, as GitHub documents it. */
+function notificationsPath(options: CleanOptions): string {
+  const query = new URLSearchParams();
+  if (!options.unreadOnly) query.set("all", "true");
+  if (options.since) query.set("since", options.since.toISOString().replace(/\.\d{3}Z$/, "Z"));
+  return query.size > 0 ? `notifications?${query}` : "notifications";
+}
+
 export async function clean(api: Api, options: CleanOptions): Promise<ThreadResult[]> {
-  const list = await api.getAll<Notification>(options.unreadOnly ? "notifications" : "notifications?all=true");
+  const list = await api.getAll<Notification>(notificationsPath(options));
   const threads = list.filter((n) => inRepos(n.repository.full_name, options.repos));
 
   return mapPool(threads, options.concurrency ?? 8, async (n): Promise<ThreadResult> => {
