@@ -58,8 +58,17 @@ export function createApi({
   };
   const resolve = (path: string) =>
     path.startsWith("https://") ? path : `${baseUrl}/${path.replace(/^\//, "")}`;
+  // The token belongs to the API host. Absolute URLs come from GitHub's
+  // responses (subject URLs, Link headers), so check each one rather than trust it.
+  // Redirects never reach this check: fetch follows them itself, and drops
+  // Authorization when one leaves the origin, as the Fetch standard requires.
+  const origin = new URL(baseUrl).origin;
 
   async function request(method: string, url: string): Promise<Response> {
+    const target = URL.parse(url);
+    if (target?.origin !== origin) {
+      throw new Error(`refusing to send the GitHub token to ${target?.href ?? JSON.stringify(url)}: not on ${origin}`);
+    }
     let lastError: unknown;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
@@ -94,6 +103,11 @@ export function createApi({
       return items;
     },
     async markDone(threadId: string) {
+      // GitHub documents the thread id as an integer. Anything else is refused, not escaped: no
+      // encoding stops "." or ".." from being read as a path segment to remove.
+      if (!/^\d+$/.test(threadId)) {
+        throw new Error(`refusing to mark thread ${JSON.stringify(threadId)} done: its id isn't a number`);
+      }
       await request("DELETE", resolve(`notifications/threads/${threadId}`));
     },
   };

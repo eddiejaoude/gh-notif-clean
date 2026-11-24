@@ -55,3 +55,84 @@ test("client errors are not retried", async () => {
   await assert.rejects(api.get("repos/x/y/pulls/1"), (e: unknown) => e instanceof HttpError && e.status === 404);
   assert.equal(calls, 1);
 });
+
+test("a URL on another origin throws without calling fetch", async () => {
+  let calls = 0;
+  const api = createApi({
+    token: "t",
+    baseUrl: "https://api.github.com",
+    fetch: async () => {
+      calls++;
+      return json([]);
+    },
+  });
+
+  await assert.rejects(api.get("https://example.com/repos/x/y/pulls/1"), /refusing to send the GitHub token/);
+  await assert.rejects(api.getAll("https://example.com/notifications"), /refusing to send the GitHub token/);
+  await assert.rejects(api.get("https://api.github.com.example.com/repos/x/y"), /refusing to send the GitHub token/);
+  await assert.rejects(api.get("https://api.github.com:8443/repos/x/y"), /refusing to send the GitHub token/);
+  assert.equal(calls, 0);
+});
+
+test("getAll stops at a Link page on another origin", async () => {
+  for (const next of [
+    "https://example.com/notifications?page=2",
+    "http://api.github.com/notifications?page=2",
+    "/notifications?page=2",
+  ]) {
+    const calls: string[] = [];
+    const pages = [json([1], { headers: { link: `<${next}>; rel="next"` } }), json([2])];
+    const api = createApi({
+      token: "t",
+      baseUrl: "https://api.github.com",
+      fetch: async (url) => {
+        calls.push(String(url));
+        return pages.shift()!;
+      },
+    });
+
+    await assert.rejects(api.getAll("notifications"), /refusing to send the GitHub token/);
+    assert.deepEqual(calls, ["https://api.github.com/notifications?per_page=100"]);
+  }
+});
+
+test("GHES: requests on the host's origin carry the token, others throw", async () => {
+  const calls: [string, string | undefined, string | null][] = [];
+  const api = createApi({
+    token: "t",
+    baseUrl: "https://ghe.example/api/v3",
+    fetch: async (url, init) => {
+      calls.push([String(url), init?.method, new Headers(init?.headers).get("authorization")]);
+      return json([]);
+    },
+  });
+
+  await api.get("repos/x/y/pulls/1");
+  await api.get("https://ghe.example/api/v3/repos/x/y/issues/2");
+  await api.markDone("3");
+  await assert.rejects(api.get("https://api.github.com/repos/x/y"), /refusing to send the GitHub token/);
+  assert.deepEqual(calls, [
+    ["https://ghe.example/api/v3/repos/x/y/pulls/1", "GET", "Bearer t"],
+    ["https://ghe.example/api/v3/repos/x/y/issues/2", "GET", "Bearer t"],
+    ["https://ghe.example/api/v3/notifications/threads/3", "DELETE", "Bearer t"],
+  ]);
+});
+
+test("markDone refuses a thread id that isn't a number without calling fetch", async () => {
+  const calls: string[] = [];
+  const api = createApi({
+    token: "t",
+    baseUrl: "https://api.github.com",
+    fetch: async (url) => {
+      calls.push(String(url));
+      return new Response(null, { status: 204 });
+    },
+  });
+
+  for (const id of ["../../repos/o/r/git/refs/heads/main", "..", "", "123/..", "../123"]) {
+    await assert.rejects(api.markDone(id), /refusing to mark thread/);
+  }
+  assert.deepEqual(calls, []);
+  await api.markDone("123");
+  assert.deepEqual(calls, ["https://api.github.com/notifications/threads/123"]);
+});

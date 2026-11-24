@@ -154,7 +154,7 @@ npm test           # node:test, no network access
 | `gh-notif-clean` | Entry point `gh` runs; starts `src/cli.ts` with Node |
 | `src/rules.ts` | Pure rules: who took part (`participants`), done or kept (`decide`), which checks keep a PR (`checksReason`), which notification reasons `--keep-reason` accepts (`parseReasons`), and the cutoff a `--since` duration sets (`parseSince`) |
 | `src/clean.ts` | Lists notifications, keeps open ones whose reason matches `--keep-reason`, loads each other thread's activity and, with `--keep-failed`, its PR checks, applies the rules, marks threads done |
-| `src/github.ts` | REST client: `gh auth token`, pagination, retries on 429/5xx |
+| `src/github.ts` | REST client: `gh auth token`, pagination, retries on 429/5xx; sends the token only to the API host's origin |
 | `src/cli.ts` | Flags and output |
 
 ## Contributing
