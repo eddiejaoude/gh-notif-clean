@@ -128,6 +128,8 @@ export interface WorkflowRun {
   check_suite_id: number;
   workflow_id: number;
   event: string;
+  /** The workflow's file, or `dynamic/…` for one of GitHub's own workflows, such as `dynamic/copilot-swe-agent/copilot`. */
+  path: string;
 }
 
 const FAILED_STATES: Record<string, true> = { failure: true, error: true };
@@ -142,9 +144,9 @@ const FAILED_CONCLUSIONS: Record<string, true> = { failure: true, timed_out: tru
  * a listed event can't be excused by another event's pass, and a pass for a
  * listed event excuses a failed run for an event left out. So add an event
  * only once GitHub is seen to list its runs. `dynamic` runs are listed for
- * some workflows (CodeQL default setup, Pages builds) and not for others
- * (Copilot's review, Dependabot's updates); the entry changes nothing either
- * way, because a dynamic workflow has no runs for another event.
+ * some of GitHub's own workflows (CodeQL default setup, Pages builds) and not
+ * for others, whose jobs `LEFT_OUT_DYNAMIC` drops; the entry changes nothing
+ * either way, because a dynamic workflow has no runs for another event.
  * https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#checks-from-some-workflow-jobs-are-not-evaluated
  */
 const CHECK_LIST_EVENTS: Record<string, true> = {
@@ -159,18 +161,48 @@ const CHECK_LIST_EVENTS: Record<string, true> = {
 };
 
 /**
+ * GitHub's own `dynamic` workflows whose runs a PR's check list leaves out, by
+ * the `path` of their workflow runs, with the names of the jobs they run. None
+ * of them can be the PR's CI, so their jobs don't count, whatever their result.
+ * A check run has to match both: a check run that a workflow creates through
+ * the API can land in a `dynamic` workflow's check suite. Every other `dynamic`
+ * workflow counts: the check list includes CodeQL default setup, CodeQL code
+ * quality, Pages builds and automatic dependency submission, and dropping a
+ * check that GitHub lists, which a branch rule can require, would mark done a
+ * thread whose PR GitHub shows failing. So add a workflow only once GitHub is
+ * seen to leave it out.
+ */
+const LEFT_OUT_DYNAMIC: Record<string, RegExp> = {
+  // Copilot code review.
+  "dynamic/agents/copilot-pull-request-reviewer": /^copilot-pull-request-reviewer$/,
+  // GitHub Advanced Security's AI code scanning findings on a PR.
+  "dynamic/agents/github-advanced-security": /^github-advanced-security$/,
+  // Copilot cloud agent.
+  "dynamic/copilot-swe-agent/copilot": /^copilot$/,
+  // Dependabot's version and security updates.
+  "dynamic/dependabot/dependabot-updates": /^Dependabot$/,
+  // Dependabot's dependency graph builds: one job per ecosystem, such as `update-pip-graph`.
+  "dynamic/dependabot/update-graph": /^update-.+-graph$/,
+};
+
+/** The job names in `LEFT_OUT_DYNAMIC`. A name alone doesn't show a check run is one of those jobs: any workflow can use it. */
+const LEFT_OUT_DYNAMIC_JOBS = Object.values(LEFT_OUT_DYNAMIC);
+
+/**
  * Why a PR's head commit keeps its thread: checks that failed, or else checks
  * that haven't finished, or else check runs that were cancelled after they
- * started. A failed or cancelled check run doesn't count when a same-named
- * pass replaced it, which `workflowRuns` (the commit's Actions runs) shows: a
- * pass in a newer run of the same workflow for the same event, as a later
- * start alone doesn't show a replacement (a `push` run and a `pull_request`
- * run of one workflow queue their jobs independently), or, for a run the PR's
- * check list leaves out, a pass in a run of the same workflow that the list
- * includes. Unfinished checks keep it because a status changing doesn't
- * notify, so a thread marked done now wouldn't come back if one fails.
- * Cancelled runs keep it because GitHub Actions reports a job that hit
- * `timeout-minutes` as cancelled, not timed out. `null` otherwise.
+ * started. `workflowRuns`, the commit's Actions runs, can show that a check
+ * run doesn't count. A job of one of GitHub's own workflows that the PR's
+ * check list leaves out, such as Copilot's code review, never does. A failed
+ * or cancelled check run doesn't when a same-named pass replaced it: a pass in
+ * a newer run of the same workflow for the same event, as a later start alone
+ * doesn't show a replacement (a `push` run and a `pull_request` run of one
+ * workflow queue their jobs independently), or, for a run the PR's check list
+ * leaves out, a pass in a run of the same workflow that the list includes.
+ * Unfinished checks keep it because a status changing doesn't notify, so a
+ * thread marked done now wouldn't come back if one fails. Cancelled runs keep
+ * it because GitHub Actions reports a job that hit `timeout-minutes` as
+ * cancelled, not timed out. `null` otherwise.
  */
 export function checksReason(
   statuses: readonly CommitStatus[],
@@ -186,6 +218,7 @@ export function checksReason(
     else if (status.state === "pending") pending.add(status.context);
   }
   for (const run of checkRuns) {
+    if (leftOutDynamicJob(run, bySuite)) continue;
     if (run.status !== "completed") pending.add(run.name);
     else if (keepsUnlessReplaced(run) && !passesElsewhere(run, checkRuns).some((pass) => replaced(run, pass, bySuite))) {
       if (run.conclusion === "cancelled") cancelled.add(run.name);
@@ -199,12 +232,24 @@ export function checksReason(
 }
 
 /**
- * Whether a failed check run, or one cancelled after it started, has a
- * same-named pass in another check suite: only then can the commit's workflow
- * runs excuse it, so they're worth fetching.
+ * Whether the commit's workflow runs could change `checksReason`, so they're
+ * worth fetching: a failed check run, or one cancelled after it started, has a
+ * same-named pass in another check suite, which they may show replaced it; or
+ * a check run that would keep the thread has the name of a job in
+ * `LEFT_OUT_DYNAMIC`, which they may show it is.
  */
 export function needsWorkflowRuns(checkRuns: readonly CheckRun[]): boolean {
-  return checkRuns.some((run) => keepsUnlessReplaced(run) && passesElsewhere(run, checkRuns).length > 0);
+  return checkRuns.some(
+    (run) =>
+      (keepsUnlessReplaced(run) && passesElsewhere(run, checkRuns).length > 0) ||
+      ((run.status !== "completed" || keepsUnlessReplaced(run)) && LEFT_OUT_DYNAMIC_JOBS.some((job) => job.test(run.name))),
+  );
+}
+
+/** Whether `run` is a job of a workflow in `LEFT_OUT_DYNAMIC`: both its name and its workflow run's path match. */
+function leftOutDynamicJob(run: CheckRun, bySuite: ReadonlyMap<number, WorkflowRun>): boolean {
+  const workflowRun = run.check_suite ? bySuite.get(run.check_suite.id) : undefined;
+  return !!workflowRun && !!LEFT_OUT_DYNAMIC[workflowRun.path]?.test(run.name);
 }
 
 /**
