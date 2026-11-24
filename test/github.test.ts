@@ -219,6 +219,22 @@ test("findGh on Windows skips relative entries, unquotes entries and reads Path 
   assert.deepEqual(fs.checked, ["C:\\Program Files\\GitHub CLI\\gh.com", "C:\\Program Files\\GitHub CLI\\gh.exe"]);
 });
 
+test("findGh on Windows takes only paths from a drive or a UNC share", () => {
+  const fs = files("\\tools\\gh.exe", "/usr/bin/gh.exe", "\\\\server\\share\\bin\\gh.exe", "C:\\gh\\gh.exe");
+
+  assert.equal(
+    findGh({ GH_PATH: "\\tools\\gh.exe", PATH: "\\tools;/usr/bin;\\\\server\\share\\bin" }, "win32", fs.isExecutable),
+    "\\\\server\\share\\bin\\gh.exe",
+  );
+  assert.equal(findGh({ GH_PATH: "/usr/bin/gh.exe", PATH: "C:/gh" }, "win32", fs.isExecutable), "C:\\gh\\gh.exe");
+  assert.deepEqual(fs.checked, [
+    "\\\\server\\share\\bin\\gh.com",
+    "\\\\server\\share\\bin\\gh.exe",
+    "C:\\gh\\gh.com",
+    "C:\\gh\\gh.exe",
+  ]);
+});
+
 test("ghAuth without a gh to run fails as not logged in", () => {
   assert.throws(() => ghAuth({ GH_HOST: "invalid.invalid", PATH: "" }, "linux"), {
     message: "gh is not logged in to invalid.invalid; run: gh auth login --hostname invalid.invalid",

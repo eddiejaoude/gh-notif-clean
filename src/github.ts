@@ -25,10 +25,10 @@ export class HttpError extends Error {
  * The gh executable to run, as an absolute path: `GH_PATH`, which gh sets to its own path
  * when it runs an extension, if it names a file this process can run, or else the first `gh`
  * in `PATH`. Empty and relative `PATH` entries are skipped, so the result never depends on
- * the working directory or on the runtime's own search order. On Windows, variable names
- * match in any case, a quoted entry is unquoted, and each entry is tried with each `PATHEXT`
- * extension that a process can be started from (.com, .exe, .bat or .cmd), in `PATHEXT`'s
- * order.
+ * the working directory or on the runtime's own search order. On Windows, a path counts only
+ * from a drive (`C:\`) or a UNC share (`\\server\share`), variable names match in any case,
+ * a quoted entry is unquoted, and each entry is tried with each `PATHEXT` extension that a
+ * process can be started from (.com, .exe, .bat or .cmd), in `PATHEXT`'s order.
  */
 export function findGh(
   env: NodeJS.ProcessEnv,
@@ -39,9 +39,14 @@ export function findGh(
   const path = windows ? win32 : posix;
   const read = (name: string) =>
     windows ? env[Object.keys(env).find((key) => key.toUpperCase() === name) ?? name] : env[name];
+  // On Windows, a path rooted without a drive, such as \tools or /usr/bin, is relative to the
+  // current drive.
+  const absolute = windows
+    ? (file: string) => /^(?:[a-z]:[\\/]|[\\/]{2}[^\\/])/i.test(file)
+    : (file: string) => file.startsWith("/");
 
   const ghPath = read("GH_PATH");
-  if (ghPath && path.isAbsolute(ghPath) && isExecutable(ghPath)) return ghPath;
+  if (ghPath && absolute(ghPath) && isExecutable(ghPath)) return ghPath;
 
   // Windows' own default when PATHEXT is unset or empty. PATHEXT also lists script types
   // such as .js, which a process can't be started from.
@@ -54,7 +59,7 @@ export function findGh(
     : ["gh"];
   for (const entry of (read("PATH") ?? "").split(path.delimiter)) {
     const dir = windows ? entry.replace(/^"(.*)"$/, "$1") : entry;
-    if (!path.isAbsolute(dir)) continue;
+    if (!absolute(dir)) continue;
     for (const name of names) {
       const file = path.join(dir, name);
       if (isExecutable(file)) return file;
