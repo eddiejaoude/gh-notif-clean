@@ -55,6 +55,8 @@ interface Subject {
   author?: { login: string } | null;
   head?: { sha: string };
   state?: string;
+  /** Set on a discussion once someone marks a comment as its answer. */
+  answer_chosen_by?: { login: string } | null;
 }
 
 async function loadActivity(api: Api, url: string, type: string, subject: Subject): Promise<ThreadActivity> {
@@ -64,6 +66,7 @@ async function loadActivity(api: Api, url: string, type: string, subject: Subjec
     reviewComments: [],
     commits: [],
     discussionComments: [],
+    answerChosenBy: null,
   };
   if (type === "PullRequest" || type === "Issue") {
     const issueUrl = url.replace("/pulls/", "/issues/");
@@ -77,6 +80,8 @@ async function loadActivity(api: Api, url: string, type: string, subject: Subjec
     // GitHub doesn't document its REST endpoints for repository discussions, so this rests on what the API
     // returned when checked in November 2026, not on a published contract. The list is flat: replies to a
     // comment come back alongside top-level comments, with `parent_id` set, and it pages like other lists.
+    // The discussion itself carries who marked its answer, `null` until someone does.
+    activity.answerChosenBy = subject.answer_chosen_by?.login ?? null;
     activity.discussionComments = await api.getAll<{ user: { login: string } | null }>(`${url}/comments`);
   }
   return activity;

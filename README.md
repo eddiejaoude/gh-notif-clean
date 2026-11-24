@@ -69,7 +69,7 @@ Each notification is a thread about one PR, issue, release, commit or discussion
 
 Being mentioned in or subscribed to a thread doesn't count as taking part.
 
-For discussions, it collects the author and everyone who commented, replies to comments included. That adds one API request per discussion (more past 100 comments). Other discussion activity, such as labelling it or marking an answer, isn't checked. For releases and commits, only the author is checked.
+For discussions, it collects the author, everyone who commented, replies to comments included, and whoever marked a comment as the answer. The comments add one API request per discussion (more past 100 comments); the answer comes with the discussion itself. Other discussion activity, such as labelling it, isn't checked. For releases and commits, only the author is checked.
 
 It then checks the whole group:
 
@@ -108,6 +108,8 @@ With `--keep-reason`, a thread whose [notification reason](https://docs.github.c
 | Dependabot PR where a maintainer only requested your review | `dependabot[bot]`, the maintainer | the maintainer | yes | **Kept** |
 | Discussion a workflow opened as `github-actions[bot]`, where a contributor replied to the bot's comment, run with `--ignore 'github-actions[bot]'` | `github-actions[bot]`, a contributor | the contributor | yes | **Kept**: a real person, even in a reply |
 | A discussion that workflow opened where only you commented, run with `--ignore 'github-actions[bot]'` | `github-actions[bot]`, you | no | yes | **Done** |
+| The same discussion where a maintainer marked your comment as the answer, run with `--ignore 'github-actions[bot]'` | `github-actions[bot]`, you, the maintainer | the maintainer | yes | **Kept**: a real person marked the answer |
+| The same discussion where you marked the answer, run with `--ignore 'github-actions[bot]'` | `github-actions[bot]`, you | no | yes | **Done** |
 | Check suite, or a thread whose details can't be fetched | unknown | — | — | **Kept**: can't be inspected |
 
 ## Development

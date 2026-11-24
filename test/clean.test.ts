@@ -119,12 +119,13 @@ test("a failed mark-done is reported as failed", async () => {
 });
 
 describe("discussions", () => {
-  /** Responses for a discussion `github-actions[bot]` started, with the given comments. */
-  const discussion = (n: number, comments: unknown[]) => ({
+  /** Responses for a discussion `github-actions[bot]` started, with the given comments and the account that marked its answer. */
+  const discussion = (n: number, comments: unknown[], answeredBy: string | null = null) => ({
     [`${API}/me/app/discussions/${n}`]: {
       user: { login: "github-actions[bot]" },
       html_url: `https://github.com/me/app/discussions/${n}`,
       state: "open",
+      answer_chosen_by: answeredBy ? { login: answeredBy } : null,
     },
     [`${API}/me/app/discussions/${n}/comments`]: comments,
   });
@@ -151,6 +152,34 @@ describe("discussions", () => {
         ["2", "done", undefined, ["github-actions[bot]", "octocat"]],
       ],
     );
+  });
+
+  test("keeps a discussion a person marked the answer on and marks one whose answer you marked done", async () => {
+    const inbox = [
+      thread("1", "me/app", "Discussion", `${API}/me/app/discussions/1`),
+      thread("2", "me/app", "Discussion", `${API}/me/app/discussions/2`),
+    ];
+    const { api, marked, requested } = fakeApi(inbox, {
+      ...discussion(1, [comment(10, "octocat")], "maintainer"),
+      ...discussion(2, [comment(20, "octocat")], "octocat"),
+    });
+    const results = await clean(api, options({ ignored }));
+
+    assert.deepEqual(marked, ["2"]);
+    assert.deepEqual(
+      results.map((r) => [r.id, r.outcome, r.reason, r.participants]),
+      [
+        ["1", "kept", "maintainer", ["github-actions[bot]", "maintainer", "octocat"]],
+        ["2", "done", undefined, ["github-actions[bot]", "octocat"]],
+      ],
+    );
+    // The answer comes with the discussion, so no request is added for it.
+    assert.deepEqual(requested.sort(), [
+      `${API}/me/app/discussions/1`,
+      `${API}/me/app/discussions/1/comments`,
+      `${API}/me/app/discussions/2`,
+      `${API}/me/app/discussions/2/comments`,
+    ]);
   });
 
   test("keeps a discussion whose comments can't be fetched", async () => {
