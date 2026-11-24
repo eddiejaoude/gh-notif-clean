@@ -40,8 +40,11 @@ npm test
 
 The tests never touch the network: `src/rules.ts` is pure, and `src/clean.ts` and `src/github.ts` take their API and `fetch` as parameters, so tests pass in fakes. Keep it that way.
 
+CI also compiles the release binaries with Bun and runs `script/test-binary.sh` on each one, on a runner of its own OS and architecture. The binaries run `src/` on Bun, not the Node that `npm test` runs on.
+
 - **Changing which threads are marked done?** Update the "How it decides" section and examples table in the README, and add or change the matching case in `test/rules.test.ts`. Every row in that table is a test.
 - **Adding a flag?** Update `--help` in `src/cli.ts` and the flags table in the README.
+- **Changing `script/`, `.bun-version` or the workflows, or using a Node API the code doesn't use yet?** Build a binary and check it with `script/test-binary.sh`, as the README's [Development](README.md#development) section describes. Bun implements most of Node's APIs, not all of them.
 
 ## Adding a bot to the defaults
 
@@ -83,6 +86,33 @@ Closes #12
 2. Reply in each review thread with `Fixed in <sha>: <what changed>` or `Not doing it: <reason>`.
 3. Don't resolve a thread yourself; the reviewer resolves it once satisfied.
 4. Don't force-push once review has started. Add a commit for each fix.
+
+## Releasing
+
+A maintainer releases by pushing a tag from `main`. The release workflow runs four jobs:
+
+1. **release** stops unless the tag's commit is on `main`. It builds the binaries, creates a draft release with generated notes and the binaries, and attests each binary. Installs never see a draft.
+2. **verify** takes each binary to a runner of its own OS and architecture, checks that its attestation comes from this workflow for this tag, and runs `script/test-binary.sh` on it.
+3. **publish** checks that the draft holds exactly the binaries verify checked, then makes the release public.
+4. **install**, for a stable tag only, installs the extension with `gh` on the same six runners and checks that `gh extension list` shows the tag, which only a binary install does.
+
+```sh
+git tag v0.2.0-rc.1 && git push origin v0.2.0-rc.1   # a tag with a "-" makes a prerelease, which gh extension install skips
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+Never create a release by hand: the workflow then uploads into it afterwards, and until it does, the latest release has no binaries, so new installs get the script and upgrades of binary installs fail.
+
+The check that the tag is on `main` catches a slip, not a person: a pushed tag runs the workflow files of the commit it points to, so anyone who can push a `v*` tag can run a release with that commit's `release.yml`. A tag ruleset that lets only the maintainer create `v*` tags is what limits who can release. A deployment environment with required reviewers on the release and publish jobs also catches a slip, but not a person: it gates only jobs that name it, and the tagged commit's `release.yml` decides that. Write access is release authority too, since a pushed branch can run a workflow with the same permissions, so keep it limited. These are repository settings, outside this repository's files.
+
+When a job fails, `gh release view <tag>` shows whether its draft exists. Before tagging again, delete your local tag too, with `git tag -d <tag>`, or `git tag` refuses.
+
+- **The tag isn't on `main`**: nothing was built. Delete the tag with `git push origin --delete <tag>` and tag a commit on `main`.
+- **release failed before the draft existed**, such as on a failed build: there's no release to delete, so `gh release delete` would stop with an error. Fix the cause on `main`, delete the tag with `git push origin --delete <tag>`, and tag again.
+- **release, verify or publish failed after the draft existed**: the release is still a draft. If the cause was transient, such as a network error, re-run the failed jobs: a re-run release job uploads into the existing draft and attests again. Otherwise fix the cause on `main`, delete the draft and the tag on GitHub with `gh release delete <tag> --cleanup-tag`, and tag again.
+- **install failed**: the release is already public and the latest. Mark it a prerelease with `gh release edit <tag> --prerelease`, so `gh extension install` and `gh extension upgrade` stop choosing it, fix the cause on `main`, and release a new tag.
+
+The binaries keep the Bun runtime they were built with, and Dependabot doesn't watch `.bun-version`. When Bun publishes a security fix that affects the extension, update `.bun-version` and `.bun-sha256` in a pull request, then release, so users get the fix with `gh extension upgrade notif-clean`.
 
 ## Working with an AI assistant
 

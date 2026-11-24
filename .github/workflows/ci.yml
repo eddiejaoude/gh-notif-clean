@@ -23,3 +23,49 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # The release runs the same script, through cli/gh-extension-precompile. It downloads
+      # and checks the Bun it builds with, so no setup-bun.
+      - run: script/build.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  binary:
+    name: ${{ matrix.asset }}
+    needs: build
+    strategy:
+      fail-fast: false
+      # Each binary on a runner of its own OS and architecture, as in release.yml.
+      matrix:
+        include:
+          - { os: ubuntu-latest, asset: gh-notif-clean-linux-amd64 }
+          - { os: ubuntu-24.04-arm, asset: gh-notif-clean-linux-arm64 }
+          - { os: macos-latest, asset: gh-notif-clean-darwin-arm64 }
+          - { os: macos-15-intel, asset: gh-notif-clean-darwin-amd64 }
+          - { os: windows-latest, asset: gh-notif-clean-windows-amd64.exe }
+          - { os: windows-11-arm, asset: gh-notif-clean-windows-arm64.exe }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      # Only to compile the stub gh.exe that script/test-binary.sh runs a Windows binary with.
+      - if: runner.os == 'Windows'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: chmod +x "dist/$ASSET" && script/test-binary.sh "dist/$ASSET"
+        env:
+          ASSET: ${{ matrix.asset }}

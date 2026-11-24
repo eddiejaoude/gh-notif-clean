@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { accessSync, constants, statSync } from "node:fs";
+import { posix, win32 } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 export interface Api {
@@ -19,17 +21,89 @@ export class HttpError extends Error {
   }
 }
 
-/** Token and API base URL for the host `gh` is logged in to (`GH_HOST`, default github.com). */
-export function ghAuth(): { token: string; baseUrl: string } {
-  const host = process.env.GH_HOST ?? "github.com";
+/**
+ * The gh executable to run, as an absolute path: `GH_PATH`, which gh sets to its own path
+ * when it runs an extension, if it names a file this process can run, or else the first `gh`
+ * in `PATH`. Empty and relative `PATH` entries are skipped, so the result never depends on
+ * the working directory or on the runtime's own search order. On Windows, a path counts only
+ * from a drive (`C:\`) or a UNC share (`\\server\share`), variable names match in any case,
+ * a quoted entry is unquoted, and each entry is tried with each `PATHEXT` extension that a
+ * process can be started from (.com, .exe, .bat or .cmd), in `PATHEXT`'s order.
+ */
+export function findGh(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  isExecutable: (file: string) => boolean,
+): string | undefined {
+  const windows = platform === "win32";
+  const path = windows ? win32 : posix;
+  const read = (name: string) =>
+    windows ? env[Object.keys(env).find((key) => key.toUpperCase() === name) ?? name] : env[name];
+  // On Windows, a path rooted without a drive, such as \tools or /usr/bin, is relative to the
+  // current drive.
+  const absolute = windows
+    ? (file: string) => /^(?:[a-z]:[\\/]|[\\/]{2}[^\\/])/i.test(file)
+    : (file: string) => file.startsWith("/");
+
+  const ghPath = read("GH_PATH");
+  if (ghPath && absolute(ghPath) && isExecutable(ghPath)) return ghPath;
+
+  // Windows' own default when PATHEXT is unset or empty. PATHEXT also lists script types
+  // such as .js, which a process can't be started from.
+  const names = windows
+    ? (read("PATHEXT") || ".COM;.EXE;.BAT;.CMD")
+        .split(";")
+        .map((ext) => ext.toLowerCase())
+        .filter((ext) => [".com", ".exe", ".bat", ".cmd"].includes(ext))
+        .map((ext) => `gh${ext}`)
+    : ["gh"];
+  for (const entry of (read("PATH") ?? "").split(path.delimiter)) {
+    const dir = windows ? entry.replace(/^"(.*)"$/, "$1") : entry;
+    if (!absolute(dir)) continue;
+    for (const name of names) {
+      const file = path.join(dir, name);
+      if (isExecutable(file)) return file;
+    }
+  }
+  return undefined;
+}
+
+function isExecutableFile(file: string): boolean {
+  try {
+    accessSync(file, constants.X_OK);
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Token and API base URL for the host `gh` is logged in to (`GH_HOST`, default github.com).
+ * Tells apart a gh it can't find, one it can't start, and one that ran and failed.
+ */
+export function ghAuth(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  isExecutable: (file: string) => boolean = isExecutableFile,
+): { token: string; baseUrl: string } {
+  const host = env.GH_HOST ?? "github.com";
+  const gh = findGh(env, platform, isExecutable);
+  if (gh === undefined) {
+    throw new Error("gh not found in GH_PATH or PATH; install GitHub CLI: https://cli.github.com");
+  }
   let token: string;
   try {
-    token = execFileSync("gh", ["auth", "token", "--hostname", host], {
+    token = execFileSync(gh, ["auth", "token", "--hostname", host], {
       encoding: "utf8",
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
-  } catch {
-    throw new Error(`gh is not logged in to ${host}; run: gh auth login --hostname ${host}`);
+  } catch (error) {
+    // Only a gh that ran has an exit status.
+    if (error instanceof Error && "status" in error && typeof error.status === "number") {
+      throw new Error(`gh is not logged in to ${host}; run: gh auth login --hostname ${host}`);
+    }
+    throw new Error(`can't run ${gh}: ${error instanceof Error ? error.message : String(error)}`);
   }
   const baseUrl = host === "github.com" ? "https://api.github.com" : `https://${host}/api/v3`;
   return { token, baseUrl };

@@ -1,0 +1,142 @@
+name: Release
+
+# Push a v* tag from main to release. The release stays a draft, which installs never see,
+# until every binary has passed verify; publish then makes it public. Never create the
+# release by hand: this workflow then uploads into it afterwards, and until it does, the
+# latest release has no binaries, so new installs get the script and upgrades of binary
+# installs fail. CONTRIBUTING.md says what to do when a job fails.
+#
+# Every action here is pinned to a commit, as the release job can publish and attest
+# binaries under this repository's name. Dependabot updates the pins and their comments.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the draft release and upload its assets
+      id-token: write # sign the attestations
+      attestations: write # store them
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # main's history, for the next step
+      - name: Check that the tag's commit is on main
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$GITHUB_REF_NAME doesn't point to a commit on main. Delete the tag and tag a commit on main."
+            exit 1
+          fi
+      # Runs script/build.sh, which downloads and checks the Bun it builds with, creates a
+      # draft release with generated notes and every file in dist/, then attests each file.
+      # A tag with a "-", such as v0.2.0-rc.1, makes a prerelease, which gh extension install
+      # skips.
+      - uses: cli/gh-extension-precompile@76961aa3bd1123d0a6fd42d0a41aca0696937c39 # v2.2.0
+        with:
+          build_script_override: script/build.sh
+          draft_release: true
+          generate_attestations: true
+      # The same files as the draft's assets, for verify and publish, whose tokens can't
+      # read a draft.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  verify:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, asset: gh-notif-clean-linux-amd64 }
+          - { os: ubuntu-24.04-arm, asset: gh-notif-clean-linux-arm64 }
+          - { os: macos-latest, asset: gh-notif-clean-darwin-arm64 }
+          - { os: macos-15-intel, asset: gh-notif-clean-darwin-amd64 }
+          - { os: windows-latest, asset: gh-notif-clean-windows-amd64.exe }
+          - { os: windows-11-arm, asset: gh-notif-clean-windows-arm64.exe }
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      attestations: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      ASSET: ${{ matrix.asset }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Only to compile the stub gh.exe that script/test-binary.sh runs a Windows binary with.
+      - if: runner.os == 'Windows'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      # Built by this workflow from this tag, not merely by some workflow in the repository.
+      - run: |
+          gh attestation verify "dist/$ASSET" -R "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --source-ref "refs/tags/$TAG"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      # No token in this step's environment, and the binary only ever runs the stub gh.
+      - run: chmod +x "dist/$ASSET" && script/test-binary.sh "dist/$ASSET"
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # publish the draft
+    # bash -eo pipefail, as in verify and install: a failure inside the comparison's pipes
+    # has to stop the job before it publishes.
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      # Publish only what verify checked: the draft's assets must be exactly those files.
+      - run: |
+          (cd dist && sha256sum -- *) | sed 's/^/sha256:/' | sort >verified
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[] | "\(.digest)  \(.name)"' | sort >drafted
+          diff verified drafted
+      - run: gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=false
+
+  # Stable tags only: gh installs from the latest stable release, so for a prerelease tag it
+  # would install an older one. A script install lists a commit SHA, not the tag. --help
+  # exits before the binary asks gh for a token.
+  install:
+    needs: publish
+    if: ${{ !contains(github.ref_name, '-') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: |
+          gh extension install "$GITHUB_REPOSITORY"
+          gh extension list | grep -F "$TAG"
+          gh notif-clean --help
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
