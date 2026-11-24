@@ -130,24 +130,20 @@ export interface WorkflowRun {
   event: string;
 }
 
-/** Conclusions that settle a check: a cancelled run with a namesake that ended this way doesn't keep the thread. */
-const SETTLED_CONCLUSIONS: Record<string, true> = { success: true, skipped: true, neutral: true };
-
 const FAILED_STATES: Record<string, true> = { failure: true, error: true };
 const FAILED_CONCLUSIONS: Record<string, true> = { failure: true, timed_out: true, action_required: true };
 
 /**
  * Why a PR's head commit keeps its thread: checks that failed, or else checks
  * that haven't finished, or else check runs that were cancelled after they
- * started with no same-named run that passed, was skipped or was neutral.
- * A failed check run doesn't count when the same job passed in a newer run of
- * the same workflow for the same event, which `workflowRuns` (the commit's
- * Actions runs) identifies: a later start alone doesn't show a replacement,
- * as a `push` run and a `pull_request` run of one workflow queue their jobs
- * independently. Unfinished checks keep it because a status changing doesn't
- * notify, so a thread marked done now wouldn't come back if one fails.
- * Cancelled runs keep it because GitHub Actions reports a job that hit
- * `timeout-minutes` as cancelled, not timed out. `null` otherwise.
+ * started. A failed or cancelled check run doesn't count when the same job
+ * passed in a newer run of the same workflow for the same event, which
+ * `workflowRuns` (the commit's Actions runs) identifies: a later start alone
+ * doesn't show a replacement, as a `push` run and a `pull_request` run of one
+ * workflow queue their jobs independently. Unfinished checks keep it because a
+ * status changing doesn't notify, so a thread marked done now wouldn't come
+ * back if one fails. Cancelled runs keep it because GitHub Actions reports a
+ * job that hit `timeout-minutes` as cancelled, not timed out. `null` otherwise.
  */
 export function checksReason(
   statuses: readonly CommitStatus[],
@@ -157,7 +153,6 @@ export function checksReason(
   const failed = new Set<string>();
   const pending = new Set<string>();
   const cancelled = new Set<string>();
-  const settled = new Set<string>();
   const bySuite = new Map(workflowRuns.map((workflowRun) => [workflowRun.check_suite_id, workflowRun]));
   for (const status of statuses) {
     if (FAILED_STATES[status.state]) failed.add(status.context);
@@ -165,15 +160,11 @@ export function checksReason(
   }
   for (const run of checkRuns) {
     if (run.status !== "completed") pending.add(run.name);
-    else if (run.conclusion && FAILED_CONCLUSIONS[run.conclusion]) {
-      if (!laterPasses(run, checkRuns).some((later) => newerRunOfSameWorkflow(run, later, bySuite))) failed.add(run.name);
-    } else if (run.conclusion === "cancelled") {
-      // A run cancelled before it started can't have hit `timeout-minutes`.
-      const ran = run.started_at && run.completed_at && Date.parse(run.completed_at) > Date.parse(run.started_at);
-      if (ran) cancelled.add(run.name);
-    } else if (run.conclusion && SETTLED_CONCLUSIONS[run.conclusion]) settled.add(run.name);
+    else if (keepsUnlessReplaced(run) && !laterPasses(run, checkRuns).some((later) => newerRunOfSameWorkflow(run, later, bySuite))) {
+      if (run.conclusion === "cancelled") cancelled.add(run.name);
+      else failed.add(run.name);
+    }
   }
-  for (const name of settled) cancelled.delete(name);
   if (failed.size > 0) return `checks failed: ${names(failed)}`;
   if (pending.size > 0) return `checks pending: ${names(pending)}`;
   if (cancelled.size > 0) return `checks cancelled: ${names(cancelled)}`;
@@ -181,36 +172,46 @@ export function checksReason(
 }
 
 /**
- * Whether a failed check run has a same-named pass that started after it
- * completed: only then can the commit's workflow runs excuse it, so they're
- * worth fetching.
+ * Whether a failed check run, or one cancelled after it started, has a
+ * same-named pass that started after it completed: only then can the commit's
+ * workflow runs excuse it, so they're worth fetching.
  */
 export function needsWorkflowRuns(checkRuns: readonly CheckRun[]): boolean {
-  return checkRuns.some(
-    (run) =>
-      run.status === "completed" &&
-      run.conclusion !== null &&
-      FAILED_CONCLUSIONS[run.conclusion] === true &&
-      laterPasses(run, checkRuns).length > 0,
-  );
+  return checkRuns.some((run) => keepsUnlessReplaced(run) && laterPasses(run, checkRuns).length > 0);
 }
 
-/** Same-named runs that passed and started after `failed` completed. */
-function laterPasses(failed: CheckRun, checkRuns: readonly CheckRun[]): CheckRun[] {
-  return checkRuns.filter((run) => run.name === failed.name && run.conclusion === "success" && startedAfter(run, failed));
+/**
+ * Whether a check run keeps the thread unless the same job passed in a newer
+ * run of its workflow: it failed, or it was cancelled after it started. A run
+ * cancelled before it started can't have hit `timeout-minutes`.
+ */
+function keepsUnlessReplaced(run: CheckRun): boolean {
+  if (!run.conclusion) return false;
+  if (FAILED_CONCLUSIONS[run.conclusion]) return true;
+  if (run.conclusion !== "cancelled" || !run.started_at || !run.completed_at) return false;
+  return Date.parse(run.completed_at) > Date.parse(run.started_at);
+}
+
+/**
+ * Same-named runs that passed and started after `earlier` completed. A skipped
+ * or neutral run doesn't count: it tested nothing, so it can't show that a
+ * failure or a possible timeout is gone.
+ */
+function laterPasses(earlier: CheckRun, checkRuns: readonly CheckRun[]): CheckRun[] {
+  return checkRuns.filter((run) => run.name === earlier.name && run.conclusion === "success" && startedAfter(run, earlier));
 }
 
 /**
  * Whether `later` ran in another workflow run of the same workflow and event
- * as `failed`, the key `gh pr checks` keeps the newest check by. A check run
+ * as `earlier`, the key `gh pr checks` keeps the newest check by. A check run
  * outside GitHub Actions, or whose workflow run wasn't listed, matches nothing.
  */
-function newerRunOfSameWorkflow(failed: CheckRun, later: CheckRun, bySuite: ReadonlyMap<number, WorkflowRun>): boolean {
-  if (!failed.check_suite || !later.check_suite || failed.check_suite.id === later.check_suite.id) return false;
-  const failedRun = bySuite.get(failed.check_suite.id);
+function newerRunOfSameWorkflow(earlier: CheckRun, later: CheckRun, bySuite: ReadonlyMap<number, WorkflowRun>): boolean {
+  if (!earlier.check_suite || !later.check_suite || earlier.check_suite.id === later.check_suite.id) return false;
+  const earlierRun = bySuite.get(earlier.check_suite.id);
   const laterRun = bySuite.get(later.check_suite.id);
-  if (!failedRun || !laterRun) return false;
-  return failedRun.workflow_id === laterRun.workflow_id && failedRun.event === laterRun.event;
+  if (!earlierRun || !laterRun) return false;
+  return earlierRun.workflow_id === laterRun.workflow_id && earlierRun.event === laterRun.event;
 }
 
 /** Whether `later` started after `earlier` completed; a missing time doesn't prove it. */
