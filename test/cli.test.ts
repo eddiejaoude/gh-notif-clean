@@ -15,3 +15,19 @@ test("an unknown --keep-reason exits 2 and lists the valid reasons", () => {
   assert.equal(stdout, "");
   assert.match(stderr, /--keep-reason: unknown reason 'bogus'; valid: .*review_requested/);
 });
+
+function runWithEnvIgnore(args: string[], ignore: string) {
+  return spawnSync(process.execPath, [cli, ...args], {
+    encoding: "utf8",
+    env: { ...process.env, GH_HOST: "invalid.invalid", GH_NOTIF_CLEAN_IGNORE: ignore },
+  });
+}
+
+test("--no-default-bots without --ignore exits 2 when GH_NOTIF_CLEAN_IGNORE is blank", () => {
+  assert.equal(runWithEnvIgnore(["--no-default-bots"], " , ").status, 2);
+});
+
+test("a GH_NOTIF_CLEAN_IGNORE entry satisfies --no-default-bots", () => {
+  // Validation passes, so the run fails later on the unknown host with 1, not 2.
+  assert.equal(runWithEnvIgnore(["--no-default-bots"], "cla-assistant[bot]").status, 1);
+});

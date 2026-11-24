@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { clean, type ThreadResult } from "./clean.ts";
 import { createApi, ghAuth } from "./github.ts";
-import { DEFAULT_IGNORED, NOTIFICATION_REASONS, parseReasons } from "./rules.ts";
+import { DEFAULT_IGNORED, NOTIFICATION_REASONS, parseIgnoreList, parseReasons } from "./rules.ts";
 
 const HELP = `Mark GitHub notifications as done when only ignored bots (and you) took part.
 
@@ -11,7 +11,7 @@ Flags:
   -n, --dry-run             List what would be marked done without changing anything
   -v, --verbose             Also list kept threads and why they were kept
   -i, --ignore LOGIN        Also ignore this account (repeatable), e.g. 'cla-assistant[bot]'
-      --no-default-bots     Ignore only the accounts given with --ignore
+      --no-default-bots     Ignore only the accounts given with --ignore or GH_NOTIF_CLEAN_IGNORE
   -R, --repo REPO           Only process OWNER/NAME or every repo of OWNER (repeatable)
       --unread-only         Skip threads you have already read
       --keep-failed         Keep open PRs whose latest commit has failed or unfinished checks
@@ -22,6 +22,9 @@ Flags:
                             thread, not from every notification it had
       --json                Print results as JSON
   -h, --help                Show this help
+
+Environment:
+  GH_NOTIF_CLEAN_IGNORE     Comma-separated accounts to ignore on every run, like --ignore
 
 Ignored by default: ${DEFAULT_IGNORED.join(", ")}
 Reasons for --keep-reason: ${NOTIFICATION_REASONS.join(", ")}
@@ -64,9 +67,13 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const ignoredLogins = [...(values["no-default-bots"] ? [] : DEFAULT_IGNORED), ...values.ignore];
+  const ignoredLogins = [
+    ...(values["no-default-bots"] ? [] : DEFAULT_IGNORED),
+    ...parseIgnoreList(process.env.GH_NOTIF_CLEAN_IGNORE),
+    ...values.ignore,
+  ];
   if (ignoredLogins.length === 0) {
-    process.stderr.write("--no-default-bots needs at least one --ignore LOGIN\n");
+    process.stderr.write("--no-default-bots needs at least one --ignore LOGIN or GH_NOTIF_CLEAN_IGNORE entry\n");
     return 2;
   }
 

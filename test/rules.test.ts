@@ -6,6 +6,7 @@ import {
   decide,
   needsWorkflowRuns,
   NOTIFICATION_REASONS,
+  parseIgnoreList,
   parseReasons,
   participants,
   type ThreadActivity,
@@ -730,5 +731,19 @@ describe("participants", () => {
       }),
     );
     assert.deepEqual([...logins], ["dependabot[bot]"]);
+  });
+});
+
+describe("parseIgnoreList (GH_NOTIF_CLEAN_IGNORE)", () => {
+  test("trims entries and skips empty ones", () => {
+    assert.deepEqual(parseIgnoreList(" cla-assistant[bot] ,, github-actions[bot],  ,"), [
+      "cla-assistant[bot]",
+      "github-actions[bot]",
+    ]);
+  });
+
+  test("is empty when unset or blank", () => {
+    assert.deepEqual(parseIgnoreList(undefined), []);
+    assert.deepEqual(parseIgnoreList(" , "), []);
   });
 });

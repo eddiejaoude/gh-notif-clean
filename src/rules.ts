@@ -104,6 +104,14 @@ export function parseReasons(values: readonly string[]): Set<string> {
   return new Set(values.map((v) => v.toLowerCase()));
 }
 
+/** Logins from a comma-separated list such as GH_NOTIF_CLEAN_IGNORE; whitespace trimmed, empty entries skipped. */
+export function parseIgnoreList(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v !== "");
+}
+
 /** Latest status per context on a commit, from the combined status endpoint. */
 export interface CommitStatus {
   context: string;
