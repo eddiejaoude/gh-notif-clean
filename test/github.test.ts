@@ -118,19 +118,21 @@ test("GHES: requests on the host's origin carry the token, others throw", async 
   ]);
 });
 
-test("markDone encodes the thread id so it can't change the request path", async () => {
+test("markDone refuses a thread id that isn't a number without calling fetch", async () => {
   const calls: string[] = [];
   const api = createApi({
     token: "t",
     baseUrl: "https://api.github.com",
     fetch: async (url) => {
       calls.push(String(url));
-      return new Response(null, { status: 205 });
+      return new Response(null, { status: 204 });
     },
   });
 
-  await api.markDone("../../repos/o/r/git/refs/heads/main");
-  assert.deepEqual(calls, [
-    "https://api.github.com/notifications/threads/..%2F..%2Frepos%2Fo%2Fr%2Fgit%2Frefs%2Fheads%2Fmain",
-  ]);
+  for (const id of ["../../repos/o/r/git/refs/heads/main", "..", "", "123/..", "../123"]) {
+    await assert.rejects(api.markDone(id), /refusing to mark thread/);
+  }
+  assert.deepEqual(calls, []);
+  await api.markDone("123");
+  assert.deepEqual(calls, ["https://api.github.com/notifications/threads/123"]);
 });

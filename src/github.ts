@@ -103,7 +103,12 @@ export function createApi({
       return items;
     },
     async markDone(threadId: string) {
-      await request("DELETE", resolve(`notifications/threads/${encodeURIComponent(threadId)}`));
+      // GitHub documents the thread id as an integer. Anything else is refused, not escaped: no
+      // encoding stops "." or ".." from being read as a path segment to remove.
+      if (!/^\d+$/.test(threadId)) {
+        throw new Error(`refusing to mark thread ${JSON.stringify(threadId)} done: its id isn't a number`);
+      }
+      await request("DELETE", resolve(`notifications/threads/${threadId}`));
     },
   };
 }
