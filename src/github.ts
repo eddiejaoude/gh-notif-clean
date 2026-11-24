@@ -65,8 +65,9 @@ export function createApi({
   const origin = new URL(baseUrl).origin;
 
   async function request(method: string, url: string): Promise<Response> {
-    if (new URL(url).origin !== origin) {
-      throw new Error(`refusing to send the GitHub token to ${url}: not on ${origin}`);
+    const target = URL.parse(url);
+    if (target?.origin !== origin) {
+      throw new Error(`refusing to send the GitHub token to ${target?.href ?? JSON.stringify(url)}: not on ${origin}`);
     }
     let lastError: unknown;
     for (let attempt = 1; attempt <= attempts; attempt++) {

@@ -74,7 +74,11 @@ test("a URL on another origin throws without calling fetch", async () => {
 });
 
 test("getAll stops at a Link page on another origin", async () => {
-  for (const next of ["https://example.com/notifications?page=2", "http://api.github.com/notifications?page=2"]) {
+  for (const next of [
+    "https://example.com/notifications?page=2",
+    "http://api.github.com/notifications?page=2",
+    "/notifications?page=2",
+  ]) {
     const calls: string[] = [];
     const pages = [json([1], { headers: { link: `<${next}>; rel="next"` } }), json([2])];
     const api = createApi({
