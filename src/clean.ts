@@ -120,16 +120,30 @@ function inRepos(fullName: string, repos: readonly string[]): boolean {
   });
 }
 
+/**
+ * Calls `fn` on each item, at most `limit` at a time, and returns the results in the items' order.
+ * Once a call rejects, no item is started after it, and this rejects with that error only when the
+ * calls already running have finished. They aren't aborted: GitHub can still act on a `DELETE`
+ * whose request is aborted once sent, so waiting is what ensures no thread is marked done after
+ * `clean()` has settled.
+ */
 async function mapPool<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>) {
   const results = new Array<R>(items.length);
   let next = 0;
+  // Boxed: a call can reject with `undefined`.
+  let failure: { error: unknown } | undefined;
   const worker = async () => {
-    while (next < items.length) {
+    while (!failure && next < items.length) {
       const i = next++;
-      results[i] = await fn(items[i] as T);
+      try {
+        results[i] = await fn(items[i] as T);
+      } catch (error) {
+        failure ??= { error };
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  if (failure) throw failure.error;
   return results;
 }
 

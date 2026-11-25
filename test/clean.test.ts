@@ -258,6 +258,58 @@ test("a thread that throws once its activity is loaded is kept with its URL and 
   });
 });
 
+test("once a thread rejects, no thread starts after it, and clean() rejects when those running have finished", async () => {
+  const inbox = [1, 2, 3, 4, 5, 6].map((n) => thread(String(n), "me/app", "PullRequest", `${API}/me/app/pulls/${n}`));
+  const fake = fakeApi(inbox, {
+    ...pr("me/app", 1, "dependabot[bot]", []),
+    ...pr("me/app", 4, "dependabot[bot]", []),
+    ...pr("me/app", 5, "dependabot[bot]", []),
+    ...pr("me/app", 6, "dependabot[bot]", []),
+  });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let clients = 0;
+  const api: Api = {
+    ...fake.api,
+    // Thread 1's DELETE is in flight when the run fails, until the test lets it through.
+    async markDone(id) {
+      if (id === "1") await held;
+      await fake.api.markDone(id);
+    },
+    // Threads are handed out in order, so the second and third clients are for threads 2 and 3.
+    // Making them throws outside the catch that keeps a thread, so each of their calls rejects.
+    withSignal() {
+      clients++;
+      if (clients === 2 || clients === 3) throw new Error(`no client for thread ${clients}`);
+      return api;
+    },
+  };
+
+  // Three at a time: thread 1 runs while threads 2 and 3 reject, and threads 4 to 6 are left.
+  const run = clean(api, options({ concurrency: 3 }));
+  const settled = run.then(
+    () => "settled",
+    () => "settled",
+  );
+  assert.equal(await Promise.race([settled, setImmediate("running")]), "running", "clean() settled with a DELETE in flight");
+
+  release();
+  await assert.rejects(run, { message: "no client for thread 2" });
+  const markedWhenSettled = [...fake.marked];
+  await setImmediate();
+
+  assert.deepEqual(markedWhenSettled, ["1"]);
+  assert.deepEqual(fake.marked, ["1"], "a thread was marked done after clean() settled");
+  assert.deepEqual(fake.requested.sort(), [
+    `${API}/me/app/issues/1/timeline`,
+    `${API}/me/app/pulls/1`,
+    `${API}/me/app/pulls/1/comments`,
+    `${API}/me/app/pulls/1/commits`,
+  ]);
+});
+
 describe("discussions", () => {
   /** Responses for a discussion `github-actions[bot]` started, with the given comments and the account that marked its answer. */
   const discussion = (n: number, comments: unknown[], answeredBy: string | null = null) => ({
