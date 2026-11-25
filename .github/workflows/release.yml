@@ -19,12 +19,14 @@ jobs:
   # A job whose token can only read the repository, so that script/build.sh, and the Bun it
   # downloads and runs, can't sign or write. In a job that can, so could they: a run step
   # there can request a signing identity for this workflow, and every step shares the
-  # machine that holds the job's tokens. Only the binaries leave this job, as the dist
-  # artifact.
+  # machine that holds the job's tokens. Only the binaries and their digests leave this
+  # job, as the dist artifact and the sha256 output.
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: read # all this job gets, whatever the workflow's default
+    outputs:
+      sha256: ${{ steps.sums.outputs.sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,6 +42,12 @@ jobs:
           fi
       # Downloads and checks the Bun it builds with, and writes the six binaries to dist/.
       - run: script/build.sh
+      # What release checks the artifact against. Only this job can set its outputs, while
+      # any job in the run can replace an artifact.
+      - id: sums
+        run: |
+          sums=$(cd dist && sha256sum -- *)
+          echo "sha256=$(base64 -w0 <<<"$sums")" >>"$GITHUB_OUTPUT"
       # release uploads and attests these files. verify checks them, as its token can't read
       # the draft, and publish checks that the draft's assets are exactly these files.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -49,7 +57,8 @@ jobs:
           if-no-files-found: error
 
   # Runs only after build, so only for a tag on main. It checks nothing out and runs nothing
-  # that build made: it downloads the binaries, uploads them to the draft and attests them.
+  # that build made: it downloads the binaries, checks them against build's digests, uploads
+  # them to the draft and attests them.
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -62,6 +71,15 @@ jobs:
         with:
           name: dist
           path: dist
+      # download-artifact takes the newest artifact named dist in the run, and checks it
+      # against the digest its uploader stored, whichever job that was.
+      - name: Check that dist is what build made
+        run: |
+          base64 -d <<<"$BUILT" >built
+          (cd dist && sha256sum -- *) >downloaded
+          diff built downloaded
+        env:
+          BUILT: ${{ needs.build.outputs.sha256 }}
       # A draft with generated notes and every file in dist/ as an asset of the same name. A
       # tag with a "-", such as v0.2.0-rc.1, makes a prerelease, which gh extension install
       # skips. A re-run uploads into the draft that the first run created. --verify-tag stops
