@@ -124,8 +124,10 @@ function inRepos(fullName: string, repos: readonly string[]): boolean {
  * Calls `fn` on each item, at most `limit` at a time, and returns the results in the items' order.
  * Once a call rejects, no item is started after it, and this rejects with that error only when the
  * calls already running have finished. They aren't aborted: GitHub can still act on a `DELETE`
- * whose request is aborted once sent, so waiting is what ensures no thread is marked done after
- * `clean()` has settled.
+ * whose request is aborted once sent, so a `DELETE` already sent completes before `clean()`
+ * settles. A thread still being inspected sends none, as `clean()` checks for a rejected call
+ * before each `DELETE`. `clean()` then rejects, and the CLI prints the error alone, without the
+ * threads the run marked done.
  */
 async function mapPool<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>) {
   const results = new Array<R>(items.length);
@@ -155,8 +157,11 @@ function notificationsPath(options: CleanOptions): string {
   return query.size > 0 ? `notifications?${query}` : "notifications";
 }
 
-/** Decides whether thread `n` is done and, unless this is a dry run, marks it done. */
-async function cleanThread(api: Api, n: Notification, options: CleanOptions): Promise<ThreadResult> {
+/**
+ * Decides whether thread `n` is done and, unless this is a dry run, marks it done. `runFailed`
+ * tells whether another thread's call has rejected, which fails the run.
+ */
+async function cleanThread(api: Api, n: Notification, options: CleanOptions, runFailed: () => boolean): Promise<ThreadResult> {
   // Filled in as the thread is read, so a thread that throws is reported with what's known of it.
   const base = {
     id: n.id,
@@ -204,6 +209,8 @@ async function cleanThread(api: Api, n: Notification, options: CleanOptions): Pr
     return { ...base, outcome: "kept", reason: `couldn't inspect: ${error instanceof Error ? error.message : String(error)}` };
   }
   if (options.dryRun) return { ...base, outcome: "would-done" };
+  // A failed run rejects clean() without results, so a thread marked done now would go unreported.
+  if (runFailed()) return { ...base, outcome: "kept", reason: "the run failed before this thread was marked done" };
   try {
     await api.markDone(n.id);
     return { ...base, outcome: "done" };
@@ -216,6 +223,8 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
   const list = await api.getAll<Notification>(notificationsPath(options));
   const threads = list.filter((n) => inRepos(n.repository.full_name, options.repos));
 
+  // Set once a thread's call rejects; cleanThread checks it before marking a thread done.
+  let failed = false;
   return mapPool(threads, options.concurrency ?? 8, async (n) => {
     // When one of the requests a thread makes in parallel fails, the thread is decided without
     // waiting for the others, which would run on, retries included, and keep the process alive
@@ -227,7 +236,10 @@ export async function clean(api: Api, options: CleanOptions): Promise<ThreadResu
     // requests on one signal, Node 22 warns on stderr past 1,500 listeners.
     const controller = new AbortController();
     try {
-      return await cleanThread(api.withSignal(controller.signal), n, options);
+      return await cleanThread(api.withSignal(controller.signal), n, options, () => failed);
+    } catch (error) {
+      failed = true;
+      throw error;
     } finally {
       controller.abort();
     }

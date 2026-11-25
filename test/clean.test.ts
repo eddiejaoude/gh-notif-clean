@@ -316,6 +316,52 @@ test("once a thread rejects, no thread starts after it, and clean() rejects when
   );
 });
 
+test("once a thread rejects, a thread still being inspected isn't marked done", async () => {
+  const inbox = [1, 2].map((n) => thread(String(n), "me/app", "PullRequest", `${API}/me/app/pulls/${n}`));
+  const fake = fakeApi(inbox, pr("me/app", 1, "dependabot[bot]", []));
+  const events: string[] = [];
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let clients = 0;
+  const api: Api = {
+    ...fake.api,
+    // Thread 1's subject is answered only once thread 2 has rejected, so thread 1, a bot-only PR,
+    // is decided done after the run has failed.
+    async get<T>(path: string) {
+      if (path === `${API}/me/app/pulls/1`) await held;
+      return fake.api.get<T>(path);
+    },
+    async markDone(id) {
+      events.push(`DELETE ${id}`);
+      await fake.api.markDone(id);
+    },
+    withSignal() {
+      clients++;
+      if (clients === 2) {
+        events.push("client 2 throws");
+        throw new Error("no client for thread 2");
+      }
+      return api;
+    },
+  };
+
+  const run = clean(api, options({ concurrency: 2 }));
+  const settled = run.then(
+    () => "settled",
+    () => "settled",
+  );
+  assert.equal(await Promise.race([settled, setImmediate("running")]), "running", "clean() settled with thread 1 still being inspected");
+  assert.deepEqual(events, ["client 2 throws"]);
+
+  release();
+  await assert.rejects(run, { message: "no client for thread 2" });
+  assert.ok(fake.requested.includes(`${API}/me/app/pulls/1/commits`), "thread 1 wasn't inspected to the end");
+  assert.deepEqual(events, ["client 2 throws"], "a DELETE was sent after the run failed");
+  assert.deepEqual(fake.marked, []);
+});
+
 describe("discussions", () => {
   /** Responses for a discussion `github-actions[bot]` started, with the given comments and the account that marked its answer. */
   const discussion = (n: number, comments: unknown[], answeredBy: string | null = null) => ({
