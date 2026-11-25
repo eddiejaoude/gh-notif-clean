@@ -177,6 +177,9 @@ async function cleanThread(api: Api, n: Notification, options: CleanOptions, run
   // notification that can't be read, such as one without a subject, costs that one thread
   // rather than the run, and every thread the run marks done is still reported.
   try {
+    // GitHub documents a subject on every notification. Without one, the reason says so rather than
+    // giving the runtime's own message, which differs between Node and Bun.
+    if (!n.subject) throw new Error("the notification has no subject");
     base.type = n.subject.type;
     base.title = n.subject.title;
     const byReason = options.keepReasons.has(n.reason) ? `notification reason: ${n.reason}` : null;

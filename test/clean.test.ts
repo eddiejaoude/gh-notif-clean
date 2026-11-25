@@ -225,10 +225,16 @@ test("a notification without a subject is kept, and every thread marked done is 
     [["1", "done"], ["2", "kept"], ["3", "done"], ["4", "done"], ["5", "done"]],
   );
   assert.deepEqual(marked.sort(), ["1", "3", "4", "5"]);
-  const { reason, ...kept } = results[1]!;
-  assert.deepEqual(kept, { id: "2", repo: "me/app", type: "", title: "", url: null, outcome: "kept", participants: [] });
-  // The rest of the reason is the runtime's own message, which differs between Node and Bun.
-  assert.match(reason ?? "", /^couldn't inspect: \S/);
+  assert.deepEqual(results[1], {
+    id: "2",
+    repo: "me/app",
+    type: "",
+    title: "",
+    url: null,
+    outcome: "kept",
+    reason: "couldn't inspect: the notification has no subject",
+    participants: [],
+  });
 });
 
 test("a thread that throws once its activity is loaded is kept with its URL and participants", async () => {
