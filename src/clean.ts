@@ -165,6 +165,8 @@ async function cleanThread(api: Api, n: Notification, options: CleanOptions, run
   // Filled in as the thread is read, so a thread that throws is reported with what's known of it.
   const base = {
     id: n.id,
+    // Safe outside the `try` only because clean()'s filter reads it first, for every notification,
+    // with or without --repo: a notification without one fails the run before any thread starts.
     repo: n.repository.full_name,
     type: "",
     title: "",
