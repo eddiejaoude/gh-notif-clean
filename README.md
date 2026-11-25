@@ -172,7 +172,7 @@ With `--keep-reason`, a thread whose [notification reason](https://docs.github.c
 | A discussion that workflow opened where only you commented, run with `--ignore 'github-actions[bot]'` | `github-actions[bot]`, you | no | yes | **Done** |
 | The same discussion where a maintainer marked your comment as the answer, run with `--ignore 'github-actions[bot]'` | `github-actions[bot]`, you, the maintainer | the maintainer | yes | **Kept**: a real person marked the answer |
 | The same discussion where you marked the answer, run with `--ignore 'github-actions[bot]'` | `github-actions[bot]`, you | no | yes | **Done** |
-| Check suite, or a thread whose details can't be fetched | unknown | — | — | **Kept**: can't be inspected |
+| Check suite, a thread whose details can't be fetched, or a notification without a subject | unknown | — | — | **Kept**: can't be inspected |
 
 ## Development
 

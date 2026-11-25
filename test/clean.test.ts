@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { setImmediate } from "node:timers/promises";
 import { clean, type CleanOptions, type Notification } from "../src/clean.ts";
 import { createApi, type Api } from "../src/github.ts";
 import { DEFAULT_IGNORED } from "../src/rules.ts";
@@ -199,6 +200,62 @@ test("a thread kept on a failed request has its other requests cancelled before 
     ],
   );
   assert.deepEqual(deleted, ["https://api.github.com/notifications/threads/2"]);
+});
+
+test("a notification without a subject is kept, and every thread marked done is in the results", async () => {
+  // GitHub documents a subject on every notification. Reading this one threw, which rejected
+  // clean() while the threads after it went on being marked done, with no result to report them.
+  const noSubject = { id: "2", unread: true, reason: "author", repository: { full_name: "me/app" } } as Notification;
+  const inbox = [1, 2, 3, 4, 5].map((n) => (n === 2 ? noSubject : thread(String(n), "me/app", "PullRequest", `${API}/me/app/pulls/${n}`)));
+  const { api, marked } = fakeApi(inbox, {
+    ...pr("me/app", 1, "dependabot[bot]", []),
+    ...pr("me/app", 3, "dependabot[bot]", []),
+    ...pr("me/app", 4, "dependabot[bot]", []),
+    ...pr("me/app", 5, "dependabot[bot]", []),
+  });
+
+  // Two at a time, so threads 3 to 5 are handed out after thread 2 is read.
+  const results = await clean(api, options({ concurrency: 2 }));
+  const markedWhenSettled = [...marked];
+  await setImmediate();
+
+  assert.deepEqual(marked, markedWhenSettled, "a thread was marked done after clean() settled");
+  assert.deepEqual(
+    results.map((r) => [r.id, r.outcome]),
+    [["1", "done"], ["2", "kept"], ["3", "done"], ["4", "done"], ["5", "done"]],
+  );
+  assert.deepEqual(marked.sort(), ["1", "3", "4", "5"]);
+  const { reason, ...kept } = results[1]!;
+  assert.deepEqual(kept, { id: "2", repo: "me/app", type: "", title: "", url: null, outcome: "kept", participants: [] });
+  // The rest of the reason is the runtime's own message, which differs between Node and Bun.
+  assert.match(reason ?? "", /^couldn't inspect: \S/);
+});
+
+test("a thread that throws once its activity is loaded is kept with its URL and participants", async () => {
+  // A subject whose state can't be read stands in for anything that throws while the thread is decided.
+  const { api, marked } = fakeApi([notifications[0]!], {
+    ...pr("me/app", 1, "dependabot[bot]", [{ event: "commented", actor: { login: "octocat" } }]),
+    [`${API}/me/app/pulls/1`]: {
+      user: { login: "dependabot[bot]" },
+      html_url: "https://github.com/me/app/pull/1",
+      get state(): string {
+        throw new Error("no state");
+      },
+    },
+  });
+  const [result] = await clean(api, options());
+
+  assert.deepEqual(marked, []);
+  assert.deepEqual(result, {
+    id: "1",
+    repo: "me/app",
+    type: "PullRequest",
+    title: "t1",
+    url: "https://github.com/me/app/pull/1",
+    outcome: "kept",
+    reason: "couldn't inspect: no state",
+    participants: ["dependabot[bot]", "octocat"],
+  });
 });
 
 describe("discussions", () => {

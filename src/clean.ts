@@ -143,47 +143,51 @@ function notificationsPath(options: CleanOptions): string {
 
 /** Decides whether thread `n` is done and, unless this is a dry run, marks it done. */
 async function cleanThread(api: Api, n: Notification, options: CleanOptions): Promise<ThreadResult> {
+  // Filled in as the thread is read, so a thread that throws is reported with what's known of it.
   const base = {
     id: n.id,
     repo: n.repository.full_name,
-    type: n.subject.type,
-    title: n.subject.title,
+    type: "",
+    title: "",
     url: null as string | null,
     participants: [] as string[],
   };
-  const byReason = options.keepReasons.has(n.reason) ? `notification reason: ${n.reason}` : null;
-  if (!n.subject.url) return { ...base, outcome: "kept", reason: byReason ?? `${n.subject.type} threads can't be inspected` };
-
-  let subject: Subject;
-  let logins: Set<string>;
+  // Whatever throws before the thread is decided keeps it, as a failed request does: a
+  // notification that can't be read, such as one without a subject, costs that one thread
+  // rather than the run, and every thread the run marks done is still reported.
   try {
-    subject = await api.get<Subject>(n.subject.url);
+    base.type = n.subject.type;
+    base.title = n.subject.title;
+    const byReason = options.keepReasons.has(n.reason) ? `notification reason: ${n.reason}` : null;
+    if (!n.subject.url) return { ...base, outcome: "kept", reason: byReason ?? `${n.subject.type} threads can't be inspected` };
+
+    const subject = await api.get<Subject>(n.subject.url);
     base.url = subject.html_url ?? null;
     // A closed or merged subject no longer needs you, so it's decided as if the reason didn't match.
     // A release or commit has no state, so it keeps matching.
     if (byReason && subject.state !== "closed") return { ...base, outcome: "kept", reason: byReason };
-    logins = participants(await loadActivity(api, n.subject.url, n.subject.type, subject));
+    const logins = participants(await loadActivity(api, n.subject.url, n.subject.type, subject));
     base.participants = [...logins].sort();
+    const headSha = subject.head?.sha ?? null;
+    const open = subject.state === "open";
+
+    const decision = decide(logins, options.me, options.ignored);
+    if (!decision.done) return { ...base, outcome: "kept", reason: decision.reason };
+    if (options.keepFailed && n.subject.type === "PullRequest" && open) {
+      let reason: string | null;
+      try {
+        if (!headSha) throw new Error("no head commit");
+        reason = await loadChecksReason(api, n.subject.url, headSha);
+      } catch (error) {
+        reason = `couldn't inspect checks: ${error instanceof Error ? error.message : String(error)}`;
+      }
+      if (reason) return { ...base, outcome: "kept", reason };
+    }
+    if (options.closedOnly && open && (n.subject.type === "PullRequest" || n.subject.type === "Issue")) {
+      return { ...base, outcome: "kept", reason: "still open" };
+    }
   } catch (error) {
     return { ...base, outcome: "kept", reason: `couldn't inspect: ${error instanceof Error ? error.message : String(error)}` };
-  }
-  const headSha = subject.head?.sha ?? null;
-  const open = subject.state === "open";
-
-  const decision = decide(logins, options.me, options.ignored);
-  if (!decision.done) return { ...base, outcome: "kept", reason: decision.reason };
-  if (options.keepFailed && n.subject.type === "PullRequest" && open) {
-    let reason: string | null;
-    try {
-      if (!headSha) throw new Error("no head commit");
-      reason = await loadChecksReason(api, n.subject.url, headSha);
-    } catch (error) {
-      reason = `couldn't inspect checks: ${error instanceof Error ? error.message : String(error)}`;
-    }
-    if (reason) return { ...base, outcome: "kept", reason };
-  }
-  if (options.closedOnly && open && (n.subject.type === "PullRequest" || n.subject.type === "Issue")) {
-    return { ...base, outcome: "kept", reason: "still open" };
   }
   if (options.dryRun) return { ...base, outcome: "would-done" };
   try {
