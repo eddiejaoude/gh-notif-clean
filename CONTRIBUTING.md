@@ -89,12 +89,13 @@ Closes #12
 
 ## Releasing
 
-A maintainer releases by pushing a tag from `main`. The release workflow runs four jobs:
+A maintainer releases by pushing a tag from `main`. The release workflow runs five jobs:
 
-1. **release** stops unless the tag's commit is on `main`. It builds the binaries, creates a draft release with generated notes and the binaries, and attests each binary. Installs never see a draft.
-2. **verify** takes each binary to a runner of its own OS and architecture, checks that its attestation comes from this workflow for this tag, and runs `script/test-binary.sh` on it.
-3. **publish** checks that the draft holds exactly the binaries verify checked, then makes the release public.
-4. **install**, for a stable tag only, installs the extension with `gh` on the same six runners and checks that `gh extension list` shows the tag, which only a binary install does.
+1. **build** stops unless the tag's commit is on `main`, then builds the binaries and records their digests. Its token can only read the repository and it can't request a signing identity, so `script/build.sh` and the Bun it downloads can't sign an attestation or write to the repository or its releases.
+2. **release** stops unless the binaries it downloads match the digests build recorded, then creates a draft release with generated notes and those binaries, and attests each binary. It checks nothing out and runs nothing that build made. Installs never see a draft.
+3. **verify** takes each binary to a runner of its own OS and architecture, checks that its attestation comes from this workflow for this tag, and runs `script/test-binary.sh` on it.
+4. **publish** checks that the draft holds exactly the binaries verify checked, then makes the release public.
+5. **install**, for a stable tag only, installs the extension with `gh` on the same six runners and checks that `gh extension list` shows the tag, which only a binary install does.
 
 ```sh
 git tag v0.2.0-rc.1 && git push origin v0.2.0-rc.1   # a tag with a "-" makes a prerelease, which gh extension install skips
@@ -107,9 +108,9 @@ The check that the tag is on `main` catches a slip, not a person: a pushed tag r
 
 When a job fails, `gh release view <tag>` shows whether its draft exists. Before tagging again, delete your local tag too, with `git tag -d <tag>`, or `git tag` refuses.
 
-- **The tag isn't on `main`**: nothing was built. Delete the tag with `git push origin --delete <tag>` and tag a commit on `main`.
-- **release failed before the draft existed**, such as on a failed build: there's no release to delete, so `gh release delete` would stop with an error. Fix the cause on `main`, delete the tag with `git push origin --delete <tag>`, and tag again.
-- **release, verify or publish failed after the draft existed**: the release is still a draft. If the cause was transient, such as a network error, re-run the failed jobs: a re-run release job uploads into the existing draft and attests again. Otherwise fix the cause on `main`, delete the draft and the tag on GitHub with `gh release delete <tag> --cleanup-tag`, and tag again.
+- **The tag isn't on `main`**: build stopped before building anything. Delete the tag with `git push origin --delete <tag>` and tag a commit on `main`.
+- **build failed, or release failed before the draft existed**: there's no release to delete, so `gh release delete` would stop with an error. If the cause was transient, such as a network error while build downloaded Bun, re-run the failed jobs. Otherwise fix the cause on `main`, delete the tag with `git push origin --delete <tag>`, and tag again.
+- **release, verify or publish failed after the draft existed**: the release is still a draft. If the cause was transient, such as a network error, re-run the failed jobs. A re-run release job, with the failed jobs or on its own, doesn't build again: it stops unless the `dist` artifact matches the digests build recorded, then uploads build's binaries into the existing draft again and attests them again. Otherwise fix the cause on `main`, delete the draft and the tag on GitHub with `gh release delete <tag> --cleanup-tag`, and tag again. If release stopped at its check, a re-run stops there too: a job other than build replaced the artifact, or build's output never reached release (the check's diff then lists all six files on the downloaded side only). Find out which before you tag again.
 - **install failed**: the release is already public and the latest. Mark it a prerelease with `gh release edit <tag> --prerelease`, so `gh extension install` and `gh extension upgrade` stop choosing it, fix the cause on `main`, and release a new tag.
 
 The binaries keep the Bun runtime they were built with, and Dependabot doesn't watch `.bun-version`. When Bun publishes a security fix that affects the extension, update `.bun-version` and `.bun-sha256` in a pull request, then release, so users get the fix with `gh extension upgrade notif-clean`.
