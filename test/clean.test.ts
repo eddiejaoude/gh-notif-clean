@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { setImmediate } from "node:timers/promises";
 import { clean, type CleanOptions, type Notification } from "../src/clean.ts";
 import { createApi, type Api } from "../src/github.ts";
 import { DEFAULT_IGNORED } from "../src/rules.ts";
@@ -199,6 +200,172 @@ test("a thread kept on a failed request has its other requests cancelled before 
     ],
   );
   assert.deepEqual(deleted, ["https://api.github.com/notifications/threads/2"]);
+});
+
+test("a notification without a subject is kept, and every thread marked done is in the results", async () => {
+  // GitHub documents a subject on every notification. Reading this one threw, which rejected
+  // clean() while the threads after it went on being marked done, with no result to report them.
+  const noSubject = { id: "2", unread: true, reason: "author", repository: { full_name: "me/app" } } as Notification;
+  const inbox = [1, 2, 3, 4, 5].map((n) => (n === 2 ? noSubject : thread(String(n), "me/app", "PullRequest", `${API}/me/app/pulls/${n}`)));
+  const { api, marked } = fakeApi(inbox, {
+    ...pr("me/app", 1, "dependabot[bot]", []),
+    ...pr("me/app", 3, "dependabot[bot]", []),
+    ...pr("me/app", 4, "dependabot[bot]", []),
+    ...pr("me/app", 5, "dependabot[bot]", []),
+  });
+
+  // Two at a time, so threads 3 to 5 are handed out after thread 2 is read.
+  const results = await clean(api, options({ concurrency: 2 }));
+  const markedWhenSettled = [...marked];
+  await setImmediate();
+
+  assert.deepEqual(marked, markedWhenSettled, "a thread was marked done after clean() settled");
+  assert.deepEqual(
+    results.map((r) => [r.id, r.outcome]),
+    [["1", "done"], ["2", "kept"], ["3", "done"], ["4", "done"], ["5", "done"]],
+  );
+  assert.deepEqual(marked.sort(), ["1", "3", "4", "5"]);
+  assert.deepEqual(results[1], {
+    id: "2",
+    repo: "me/app",
+    type: "",
+    title: "",
+    url: null,
+    outcome: "kept",
+    reason: "couldn't inspect: the notification has no subject",
+    participants: [],
+  });
+});
+
+test("a thread that throws once its activity is loaded is kept with its URL and participants", async () => {
+  // A subject whose state can't be read stands in for anything that throws while the thread is decided.
+  const { api, marked } = fakeApi([notifications[0]!], {
+    ...pr("me/app", 1, "dependabot[bot]", [{ event: "commented", actor: { login: "octocat" } }]),
+    [`${API}/me/app/pulls/1`]: {
+      user: { login: "dependabot[bot]" },
+      html_url: "https://github.com/me/app/pull/1",
+      get state(): string {
+        throw new Error("no state");
+      },
+    },
+  });
+  const [result] = await clean(api, options());
+
+  assert.deepEqual(marked, []);
+  assert.deepEqual(result, {
+    id: "1",
+    repo: "me/app",
+    type: "PullRequest",
+    title: "t1",
+    url: "https://github.com/me/app/pull/1",
+    outcome: "kept",
+    reason: "couldn't inspect: no state",
+    participants: ["dependabot[bot]", "octocat"],
+  });
+});
+
+test("once a thread rejects, no thread starts after it, and clean() rejects when those running have finished", async () => {
+  const inbox = [1, 2, 3, 4, 5, 6].map((n) => thread(String(n), "me/app", "PullRequest", `${API}/me/app/pulls/${n}`));
+  const fake = fakeApi(inbox, {
+    ...pr("me/app", 1, "dependabot[bot]", []),
+    ...pr("me/app", 2, "dependabot[bot]", []),
+    ...pr("me/app", 3, "dependabot[bot]", []),
+    ...pr("me/app", 6, "dependabot[bot]", []),
+  });
+  const events: string[] = [];
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let clients = 0;
+  const api: Api = {
+    ...fake.api,
+    // Thread 1's DELETE is sent before the run fails, and stays in flight until the test lets it through.
+    async markDone(id) {
+      events.push(`DELETE ${id}`);
+      if (id === "1") await held;
+      await fake.api.markDone(id);
+    },
+    // Threads are handed out in order, so the fourth and fifth clients are for threads 4 and 5.
+    // Making them throws outside the catch that keeps a thread, so each of their calls rejects.
+    withSignal() {
+      clients++;
+      if (clients === 4 || clients === 5) {
+        events.push(`client ${clients} throws`);
+        throw new Error(`no client for thread ${clients}`);
+      }
+      return api;
+    },
+  };
+
+  // Three at a time: thread 1's DELETE is sent and held, threads 2 and 3 are marked done, their
+  // workers take threads 4 and 5, which reject, and thread 6 is left.
+  const run = clean(api, options({ concurrency: 3 }));
+  const settled = run.then(
+    () => "settled",
+    () => "settled",
+  );
+  assert.equal(await Promise.race([settled, setImmediate("running")]), "running", "clean() settled with a DELETE in flight");
+  assert.deepEqual(events, ["DELETE 1", "DELETE 2", "DELETE 3", "client 4 throws", "client 5 throws"]);
+
+  release();
+  await assert.rejects(run, { message: "no client for thread 4" });
+  const markedWhenSettled = [...fake.marked];
+  await setImmediate();
+
+  assert.deepEqual(markedWhenSettled, ["2", "3", "1"]);
+  assert.deepEqual(fake.marked, ["2", "3", "1"], "a thread was marked done after clean() settled");
+  assert.deepEqual(
+    fake.requested.filter((path) => /\/(?:pulls|issues)\/[456]\b/.test(path)),
+    [],
+    "a thread was started after the rejection",
+  );
+});
+
+test("once a thread rejects, a thread still being inspected isn't marked done", async () => {
+  const inbox = [1, 2].map((n) => thread(String(n), "me/app", "PullRequest", `${API}/me/app/pulls/${n}`));
+  const fake = fakeApi(inbox, pr("me/app", 1, "dependabot[bot]", []));
+  const events: string[] = [];
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let clients = 0;
+  const api: Api = {
+    ...fake.api,
+    // Thread 1's subject is answered only once thread 2 has rejected, so thread 1, a bot-only PR,
+    // is decided done after the run has failed.
+    async get<T>(path: string) {
+      if (path === `${API}/me/app/pulls/1`) await held;
+      return fake.api.get<T>(path);
+    },
+    async markDone(id) {
+      events.push(`DELETE ${id}`);
+      await fake.api.markDone(id);
+    },
+    withSignal() {
+      clients++;
+      if (clients === 2) {
+        events.push("client 2 throws");
+        throw new Error("no client for thread 2");
+      }
+      return api;
+    },
+  };
+
+  const run = clean(api, options({ concurrency: 2 }));
+  const settled = run.then(
+    () => "settled",
+    () => "settled",
+  );
+  assert.equal(await Promise.race([settled, setImmediate("running")]), "running", "clean() settled with thread 1 still being inspected");
+  assert.deepEqual(events, ["client 2 throws"]);
+
+  release();
+  await assert.rejects(run, { message: "no client for thread 2" });
+  assert.ok(fake.requested.includes(`${API}/me/app/pulls/1/commits`), "thread 1 wasn't inspected to the end");
+  assert.deepEqual(events, ["client 2 throws"], "a DELETE was sent after the run failed");
+  assert.deepEqual(fake.marked, []);
 });
 
 describe("discussions", () => {
