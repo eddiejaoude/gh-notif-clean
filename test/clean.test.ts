@@ -262,10 +262,11 @@ test("once a thread rejects, no thread starts after it, and clean() rejects when
   const inbox = [1, 2, 3, 4, 5, 6].map((n) => thread(String(n), "me/app", "PullRequest", `${API}/me/app/pulls/${n}`));
   const fake = fakeApi(inbox, {
     ...pr("me/app", 1, "dependabot[bot]", []),
-    ...pr("me/app", 4, "dependabot[bot]", []),
-    ...pr("me/app", 5, "dependabot[bot]", []),
+    ...pr("me/app", 2, "dependabot[bot]", []),
+    ...pr("me/app", 3, "dependabot[bot]", []),
     ...pr("me/app", 6, "dependabot[bot]", []),
   });
+  const events: string[] = [];
   let release!: () => void;
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -273,41 +274,46 @@ test("once a thread rejects, no thread starts after it, and clean() rejects when
   let clients = 0;
   const api: Api = {
     ...fake.api,
-    // Thread 1's DELETE is in flight when the run fails, until the test lets it through.
+    // Thread 1's DELETE is sent before the run fails, and stays in flight until the test lets it through.
     async markDone(id) {
+      events.push(`DELETE ${id}`);
       if (id === "1") await held;
       await fake.api.markDone(id);
     },
-    // Threads are handed out in order, so the second and third clients are for threads 2 and 3.
+    // Threads are handed out in order, so the fourth and fifth clients are for threads 4 and 5.
     // Making them throws outside the catch that keeps a thread, so each of their calls rejects.
     withSignal() {
       clients++;
-      if (clients === 2 || clients === 3) throw new Error(`no client for thread ${clients}`);
+      if (clients === 4 || clients === 5) {
+        events.push(`client ${clients} throws`);
+        throw new Error(`no client for thread ${clients}`);
+      }
       return api;
     },
   };
 
-  // Three at a time: thread 1 runs while threads 2 and 3 reject, and threads 4 to 6 are left.
+  // Three at a time: thread 1's DELETE is sent and held, threads 2 and 3 are marked done, their
+  // workers take threads 4 and 5, which reject, and thread 6 is left.
   const run = clean(api, options({ concurrency: 3 }));
   const settled = run.then(
     () => "settled",
     () => "settled",
   );
   assert.equal(await Promise.race([settled, setImmediate("running")]), "running", "clean() settled with a DELETE in flight");
+  assert.deepEqual(events, ["DELETE 1", "DELETE 2", "DELETE 3", "client 4 throws", "client 5 throws"]);
 
   release();
-  await assert.rejects(run, { message: "no client for thread 2" });
+  await assert.rejects(run, { message: "no client for thread 4" });
   const markedWhenSettled = [...fake.marked];
   await setImmediate();
 
-  assert.deepEqual(markedWhenSettled, ["1"]);
-  assert.deepEqual(fake.marked, ["1"], "a thread was marked done after clean() settled");
-  assert.deepEqual(fake.requested.sort(), [
-    `${API}/me/app/issues/1/timeline`,
-    `${API}/me/app/pulls/1`,
-    `${API}/me/app/pulls/1/comments`,
-    `${API}/me/app/pulls/1/commits`,
-  ]);
+  assert.deepEqual(markedWhenSettled, ["2", "3", "1"]);
+  assert.deepEqual(fake.marked, ["2", "3", "1"], "a thread was marked done after clean() settled");
+  assert.deepEqual(
+    fake.requested.filter((path) => /\/(?:pulls|issues)\/[456]\b/.test(path)),
+    [],
+    "a thread was started after the rejection",
+  );
 });
 
 describe("discussions", () => {
