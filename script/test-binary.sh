@@ -5,6 +5,7 @@
 # shows that it needs neither Node nor Bun.
 # Testing a Windows binary needs Bun, to compile the stub gh.exe.
 # Usage: script/test-binary.sh dist/gh-notif-clean-<os>-<arch>[.exe]
+# With TAG set, as the release workflow sets it, --version must print that tag.
 # check takes each condition in single quotes, to evaluate it after the run it checks.
 # shellcheck disable=SC2016
 set -euo pipefail
@@ -101,6 +102,14 @@ check() {
 
 run "$neutral" "$bin" --help
 check "--help exits 0" '[[ $status == 0 && $out == "Mark GitHub notifications as done "* && -z $err ]]'
+
+# No git on PATH, so a binary built without the version would print "unknown".
+run "$neutral" "$bin" --version
+check "--version prints the version it was built with" \
+  '[[ $status == 0 && $out == "gh notif-clean "?* && $out != *unknown && -z $err && -z $calls ]]'
+if [[ -n ${TAG-} ]]; then
+  check "--version prints the tag $TAG" '[[ $out == "gh notif-clean $TAG" ]]'
+fi
 
 run "$neutral" "$bin" --bogus
 check "an unknown flag exits 2" '[[ $status == 2 && -z $out && $err == *"--bogus"* && -z $calls ]]'

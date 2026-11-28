@@ -1,3 +1,6 @@
+import { spawnSync } from "node:child_process";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { clean, type ThreadResult } from "./clean.ts";
 import { createApi, ghAuth } from "./github.ts";
@@ -25,6 +28,7 @@ Flags:
                             GitHub sets the reason from the latest notification on the
                             thread, not from every notification it had
       --json                Print results as JSON
+      --version             Show the version
   -h, --help                Show this help
 
 Environment:
@@ -36,6 +40,20 @@ Environment:
 Ignored by default: ${DEFAULT_IGNORED.join(", ")}
 Reasons for --keep-reason: ${NOTIFICATION_REASONS.join(", ")}
 `;
+
+// script/build.sh defines this in the release binaries, as the tag they were built from.
+declare const GH_NOTIF_CLEAN_VERSION: string | undefined;
+
+// Run from source, the version is the checkout's tag, or the commit past it, as git describes
+// it. git runs in this file's own directory, so a git in the user's working directory can't.
+function version(): string {
+  if (typeof GH_NOTIF_CLEAN_VERSION === "string") return GH_NOTIF_CLEAN_VERSION;
+  const git = spawnSync("git", ["describe", "--tags", "--always", "--dirty"], {
+    cwd: dirname(fileURLToPath(import.meta.url)),
+    encoding: "utf8",
+  });
+  return git.status === 0 ? git.stdout.trim() : "unknown";
+}
 
 const LABELS = { done: "DONE", "would-done": "WOULD DONE", kept: "KEEP", failed: "FAIL" } as const;
 
@@ -63,6 +81,7 @@ async function main(argv: string[]): Promise<number> {
         "keep-reason": { type: "string", multiple: true, default: [] },
         "closed-only": { type: "boolean", default: false },
         json: { type: "boolean", default: false },
+        version: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
     }));
@@ -72,6 +91,10 @@ async function main(argv: string[]): Promise<number> {
   }
   if (values.help) {
     process.stdout.write(HELP);
+    return 0;
+  }
+  if (values.version) {
+    process.stdout.write(`gh notif-clean ${version()}\n`);
     return 0;
   }
 

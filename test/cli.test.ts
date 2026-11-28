@@ -58,6 +58,20 @@ test("an invalid --since exits 2 before reaching GitHub", () => {
   assert.match(stderr, /^--since: .*'7y'/);
 });
 
+test("--version prints the version and exits 0 before reaching GitHub", () => {
+  const { status, stdout, stderr } = run(["--version"]);
+  assert.equal(status, 0);
+  assert.match(stdout, /^gh notif-clean \S+\n$/);
+  assert.doesNotMatch(stdout, /unknown/);
+  assert.equal(stderr, "");
+});
+
+test("--version wins over an invalid flag value, as --help does", () => {
+  const { status, stdout } = run(["--version", "--since", "7y"]);
+  assert.equal(status, 0);
+  assert.match(stdout, /^gh notif-clean \S+\n$/);
+});
+
 test("a usage error larger than a 64 KiB pipe arrives complete and exits 2", posixPipes, () => {
   // The unknown option is echoed back before the help text.
   const option = `--${"x".repeat(100_000)}`;

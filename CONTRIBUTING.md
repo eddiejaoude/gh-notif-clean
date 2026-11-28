@@ -95,7 +95,7 @@ A maintainer releases by pushing a tag from `main`. The release workflow runs fi
 2. **release** stops unless the binaries it downloads match the digests build recorded, then creates a draft release with generated notes and those binaries, and attests each binary. It checks nothing out and runs nothing that build made. Installs never see a draft.
 3. **verify** takes each binary to a runner of its own OS and architecture, checks that its attestation comes from this workflow for this tag, and runs `script/test-binary.sh` on it.
 4. **publish** checks that the draft holds exactly the binaries verify checked, then makes the release public.
-5. **install**, for a stable tag only, installs the extension with `gh` on the same six runners and checks that `gh extension list` shows the tag, which only a binary install does.
+5. **install**, for a stable tag only, installs the extension with `gh` on the same six runners and checks that `gh extension list` shows the tag, which only a binary install does, and that `gh notif-clean --version` prints it.
 
 ```sh
 git tag v0.2.0-rc.1 && git push origin v0.2.0-rc.1   # a tag with a "-" makes a prerelease, which gh extension install skips

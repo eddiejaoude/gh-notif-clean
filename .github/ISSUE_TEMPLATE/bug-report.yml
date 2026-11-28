@@ -48,10 +48,11 @@ body:
     id: versions
     attributes:
       label: Versions
-      description: Paste what these show. In `gh extension list`, a binary install shows its release tag; anything else runs from source with Node.
+      description: Paste what these show. In `gh extension list`, a binary install shows its release tag; anything else runs from source with Node. `gh notif-clean --version` needs v0.3.0 or later.
       value: |
         gh --version:
         The notif-clean line of gh extension list:
+        gh notif-clean --version (v0.3.0 or later):
         node --version (only if that line shows no release tag):
     validations:
       required: true

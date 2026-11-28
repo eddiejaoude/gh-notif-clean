@@ -82,6 +82,7 @@ gh notif-clean --json -n | jq '.threads[] | select(.outcome == "kept")'
 | `--closed-only` | Keep open PRs and issues, so only closed or merged ones are marked done |
 | `--keep-reason REASON` | Keep threads whose [notification reason](https://docs.github.com/en/rest/activity/notifications#about-notification-reasons) is `REASON`, such as `review_requested` or `assign`, until their PR or issue is closed or merged (repeatable, any case). GitHub sets the reason from the latest notification on the thread |
 | `--json` | Print the summary and every thread's outcome as JSON |
+| `--version` | Show the version: the release tag for a binary install, or what `git describe` says for a source install |
 | `-h`, `--help` | Show help |
 
 It exits with `0` on success, `1` if marking any thread done failed, and `2` for invalid flags.
