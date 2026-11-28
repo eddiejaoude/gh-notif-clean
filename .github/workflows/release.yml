@@ -40,8 +40,11 @@ jobs:
             echo "::error::$GITHUB_REF_NAME doesn't point to a commit on main. Delete the tag and tag a commit on main."
             exit 1
           fi
-      # Downloads and checks the Bun it builds with, and writes the six binaries to dist/.
+      # Downloads and checks the Bun it builds with, and writes the six binaries to dist/,
+      # each printing this tag for --version.
       - run: script/build.sh
+        env:
+          GH_NOTIF_CLEAN_VERSION: ${{ github.ref_name }}
       # What release checks the artifact against. Only this job can set its outputs, while
       # any job in the run can replace an artifact.
       - id: sums
@@ -173,7 +176,7 @@ jobs:
 
   # Stable tags only: gh installs from the latest stable release, so for a prerelease tag it
   # would install an older one. A script install lists a commit SHA, not the tag. --help
-  # exits before the binary asks gh for a token.
+  # and --version exit before the binary asks gh for a token.
   install:
     needs: publish
     if: ${{ !contains(github.ref_name, '-') }}
@@ -190,6 +193,7 @@ jobs:
           gh extension install "$GITHUB_REPOSITORY"
           gh extension list | grep -F "$TAG"
           gh notif-clean --help
+          gh notif-clean --version | grep -Fx "gh notif-clean $TAG"
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}

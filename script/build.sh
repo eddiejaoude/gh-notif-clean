@@ -13,6 +13,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 version=$(<.bun-version)
+
+# What --version prints: the tag the release workflow passes in GH_NOTIF_CLEAN_VERSION, or
+# for any other build, the commit as git describes it. Only characters that need no escaping
+# inside the JavaScript string --define makes of it.
+release=${GH_NOTIF_CLEAN_VERSION:-$(git describe --tags --always --dirty)}
+if [[ ! $release =~ ^[A-Za-z0-9._+-]+$ ]]; then
+  echo "script/build.sh: version '$release' may only hold letters, digits and . _ + -" >&2
+  exit 1
+fi
+
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) host=darwin-aarch64 ;;
   Darwin-x86_64) host=darwin-x64 ;;
@@ -89,5 +99,6 @@ for target in "${targets[@]}"; do
   # any script, and a .env can set GH_HOST, so both are switched off.
   "$bun" build src/cli.ts --compile --target="bun-$bun_target" --compile-executable-path "$exe" \
     --no-compile-autoload-dotenv --no-compile-autoload-bunfig \
+    --define "GH_NOTIF_CLEAN_VERSION=\"$release\"" \
     --outfile "dist/gh-notif-clean-$asset"
 done
