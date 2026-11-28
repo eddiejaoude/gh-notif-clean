@@ -86,7 +86,7 @@ gh notif-clean --json -n | jq '.threads[] | select(.outcome == "kept")'
 
 It exits with `0` on success, `1` if marking any thread done failed, and `2` for invalid flags.
 
-To always ignore extra bots, set `GH_NOTIF_CLEAN_IGNORE` to a list of logins separated by commas or whitespace, for example in your shell profile or CI. Empty entries are skipped, and each remaining entry works like an `--ignore` value: `--no-default-bots` still drops only the built-in defaults.
+To always ignore extra bots, set `GH_NOTIF_CLEAN_IGNORE` to a list of logins separated by commas or whitespace, for example in your shell profile or CI. Empty entries are skipped, and each remaining entry works like an `--ignore` value: `--no-default-bots` still drops only the built-in defaults. [Why a thread was kept](#why-a-thread-was-kept) shows how to find which bots to add.
 
 ```sh
 export GH_NOTIF_CLEAN_IGNORE='cla-assistant[bot],github-actions[bot]'
@@ -100,7 +100,7 @@ Each notification is a thread about one PR, issue, release, commit or discussion
 
 - opened the PR or issue (author)
 - commented, reviewed, or commented on a line of code
-- pushed a commit to the PR (commit author account)
+- pushed a commit to the PR (commit author account). A commit whose author email isn't linked to a GitHub account has no account, so for now it doesn't count; [#59](https://github.com/eddiejaoude/gh-notif-clean/issues/59) tracks keeping the thread for one
 - requested a review, assigned, labelled, merged, closed, reopened, renamed, or referenced the thread from elsewhere. This covers any action in the PR or issue timeline.
 
 Being mentioned in or subscribed to a thread doesn't count as taking part.
@@ -163,6 +163,9 @@ With `--keep-reason`, a thread whose [notification reason](https://docs.github.c
 | The same bump once merged, run with `--keep-reason review_requested` | `dependabot[bot]` | no | yes | **Done**: the PR is merged |
 | The open bump, run without `--keep-reason` | `dependabot[bot]` | no | yes | **Done** |
 | Dependabot bump that the CLA bot commented on | `dependabot[bot]`, `vercel[bot]`, `cla-assistant[bot]`, you | `cla-assistant[bot]` | yes | **Kept**: that bot isn't ignored (use `--ignore 'cla-assistant[bot]'`) |
+| Your PR that a workflow committed to as `github-actions[bot]`, such as one that regenerates a file | you, `github-actions[bot]` | `github-actions[bot]` | no | **Kept**: that bot isn't ignored |
+| The same PR, run with `--ignore 'github-actions[bot]'` | you, `github-actions[bot]` | no | yes | **Done** |
+| Your PR that a project's built-in workflow moved on its board, with a Vercel preview | you, `vercel[bot]`, `github-project-automation[bot]` | `github-project-automation[bot]` | yes | **Kept**: that bot isn't ignored (use `--ignore 'github-project-automation[bot]'`) |
 | Your issue that a contributor commented on | you, a contributor | the contributor | no | **Kept**: a real person |
 | A contributor's PR with a Vercel preview comment | a contributor, `vercel[bot]` | the contributor | yes | **Kept**: a real person, even though Vercel commented |
 | Your own PR with no bot activity | you | no | no | **Kept**: nothing bot-generated |
@@ -173,6 +176,52 @@ With `--keep-reason`, a thread whose [notification reason](https://docs.github.c
 | The same discussion where a maintainer marked your comment as the answer, run with `--ignore 'github-actions[bot]'` | `github-actions[bot]`, you, the maintainer | the maintainer | yes | **Kept**: a real person marked the answer |
 | The same discussion where you marked the answer, run with `--ignore 'github-actions[bot]'` | `github-actions[bot]`, you | no | yes | **Done** |
 | Check suite, a thread whose details can't be fetched, or a notification without a subject | unknown | — | — | **Kept**: can't be inspected |
+
+## Why a thread was kept
+
+Every kept thread has a reason. When the reason is a list of accounts, those are the participants who are neither you nor ignored, and any one of them is enough to keep the thread. `-n -v` previews a run and also lists the kept threads, each with its reason in brackets and its URL:
+
+```console
+$ gh notif-clean -n -v
+KEEP  eddiejaoude/eddiejaoude PullRequest: Refresh GitHub profile: current role, new banner, fixed badges, Substack feed  [github-actions[bot]]  https://github.com/eddiejaoude/eddiejaoude/pull/160
+KEEP  eddiejaoude/StackDash PullRequest: fix(ci): fix four flaky tests and CI failures  [github-project-automation[bot]]  https://github.com/eddiejaoude/StackDash/pull/620
+KEEP  octo-org/octo-repo Issue: Card fields testing  [octocat, github-actions[bot]]  https://github.com/octo-org/octo-repo/issues/1033
+```
+
+- **PR 160** is kept only for `github-actions[bot]`: a workflow pushed two of its commits as that bot. You did everything else, including the merge, so ignoring that bot marks it done.
+- **PR 620** is kept only for `github-project-automation[bot]`: a project's built-in workflow changed the PR's status on a board twice, and any action in the timeline counts.
+- **Issue 1033** names a person, `octocat`, as well as a bot. Ignoring the bot doesn't change it: the issue stays until no person but you takes part in it.
+
+Ignoring a bot helps only the threads whose reason lists bots and nothing else. To see which accounts keep the most threads:
+
+```sh
+gh notif-clean -n --json | jq -r '.threads[] | select(.outcome == "kept") | .reason | split(", ")[]' | sort | uniq -c | sort -rn
+```
+
+```text
+      8 github-project-automation[bot]
+      4 github-actions[bot]
+      2 octocat
+```
+
+Before ignoring a bot for good, preview what would change with `-i` on a dry run:
+
+```sh
+gh notif-clean -n -i 'github-actions[bot]' -i 'github-project-automation[bot]'
+```
+
+If that marks done only what you'd expect, add the bots to `GH_NOTIF_CLEAN_IGNORE` in your shell profile:
+
+```sh
+export GH_NOTIF_CLEAN_IGNORE='github-actions[bot],github-project-automation[bot]'
+```
+
+Two bots that often keep threads aren't ignored by default:
+
+| Bot | What it does | Ignore it? |
+|---|---|---|
+| `github-actions[bot]` | Acts for any GitHub Actions workflow that uses the default token: it pushes commits, comments, and opens PRs, issues and releases | Only if the workflows in repositories you watch don't post anything you need to read, such as a test failure report or a release PR waiting for you |
+| `github-project-automation[bot]` | Runs a project's built-in workflows, which add items to the project and set their status, for example when a PR is merged | Yes, if you don't need to see board changes: it acts only on project rules |
 
 ## Development
 
